@@ -1,3 +1,4 @@
+// src/pages/Auth/Login.tsx
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth, User } from '../../contexts/AuthContext';
@@ -39,36 +40,38 @@ const Login: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col font-sans bg-gray-50 overflow-hidden relative">
-      <header className="relative z-20 flex justify-between items-center px-6 lg:px-16 h-[72px] bg-white shadow-sm border-b border-gray-100">
+    <div className="h-screen max-h-screen flex flex-col font-sans bg-gray-50 overflow-hidden relative select-none">
+      <header className="relative z-20 flex justify-between items-center px-6 lg:px-16 h-16 bg-white shadow-sm border-b border-gray-100 shrink-0">
         <div className="flex items-center gap-3">
           <img src={logoImg} alt="Metrix Tax Filing Logo" className="h-20 md:h-22 w-auto object-contain" />
         </div>
 
-        <div className="bg-blue-50 border border-blue-100 text-blue-800 text-xs font-bold px-4 py-2 rounded-full flex items-center gap-2">
+        <div className="bg-blue-50 border border-blue-100 text-blue-800 text-xs font-bold px-4 py-1.5 rounded-full flex items-center gap-2">
           <ShieldCheck className="w-4 h-4 text-blue-600" />
           INTERNAL CRM
         </div>
       </header>
 
       {/* Main Content Layout */}
-      <main className="flex-1 relative flex">
+      <main className="flex-1 relative flex min-h-0 overflow-hidden">
         
+        {/* Background Layer */}
         <div className="absolute inset-0 z-0 flex flex-col">
           <div className="flex-[2] bg-[#1a3a44]"></div>
-          <div className="flex-[1] bg-white border-b-[16px] border-blue-700"></div>
+          <div className="flex-[1] bg-white"></div>
         </div>
 
         {/* Content Container */}
-        <div className="relative z-10 w-full max-w-7xl mx-auto flex flex-col lg:flex-row items-center justify-center lg:justify-between px-6 lg:px-16 py-10 gap-10">
+        <div className="relative z-10 w-full max-w-7xl mx-auto flex flex-col lg:flex-row items-center justify-center lg:justify-between px-6 lg:px-16 py-4 gap-6 lg:gap-10 min-h-0 h-full">
           
-          <div className="flex-1 flex flex-col lg:flex-row items-center justify-center lg:justify-end gap-10 w-full">
+          <div className="flex-1 flex flex-col lg:flex-row items-center justify-center lg:justify-end gap-6 lg:gap-10 w-full">
             
             <h2 className="text-4xl lg:text-5xl font-bold text-white text-center lg:text-right leading-[1.15]">
               Welcome<br/>to<br/>CRM Portal
             </h2>
 
-            <div className="hidden lg:flex w-[280px] h-[550px] bg-white rounded-[2.5rem] border-[6px] border-gray-800 shadow-2xl flex-col relative overflow-hidden">
+            {/* CSS Phone Mockup - Exact previous structure restored */}
+            <div className="hidden lg:flex w-[280px] h-[550px] bg-white rounded-[2.5rem] border-[6px] border-gray-800 shadow-2xl flex-col relative overflow-hidden shrink-0">
               <div className="absolute top-0 inset-x-0 h-6 bg-gray-800 rounded-b-xl w-32 mx-auto"></div>
               
               <div className="flex-1 px-5 pt-12 pb-6 flex flex-col items-center text-center">
@@ -96,7 +99,7 @@ const Login: React.FC = () => {
             </div>
           </div>
 
-          <div className="w-full max-w-[420px] lg:ml-10">
+          <div className="w-full max-w-[420px] lg:ml-10 shrink-0">
             <div className="bg-white rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] p-8 lg:p-10 relative">
               
               <h2 className="text-3xl font-bold text-gray-800 mb-2">Employee Login</h2>
