@@ -1,3 +1,4 @@
+// src/contexts/AuthContext.tsx
 import React, { createContext, useContext, useState, ReactNode } from 'react';
 
 export interface User {
@@ -16,16 +17,26 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  // Temporary initial state for UI testing
-  const [user, setUser] = useState<User | null>({
-    id: '1',
-    name: 'Admin User',
-    role: 'ADMIN',
-    team: 'NONE'
+  
+  // BUG FIX: Hardcoded dummy user theesesi, localStorage nunchi get chesthunnam
+  const [user, setUser] = useState<User | null>(() => {
+    const savedUser = localStorage.getItem('authUser');
+    return savedUser ? JSON.parse(savedUser) : null;
   });
 
-  const login = (userData: User) => setUser(userData);
-  const logout = () => setUser(null);
+  const login = (userData: User) => {
+    setUser(userData);
+    // Login ayyaka user data ni browser storage lo save chestham
+    localStorage.setItem('authUser', JSON.stringify(userData)); 
+  };
+
+  const logout = () => {
+    setUser(null);
+    // Logout kottagane browser storage nunchi lepestham
+    localStorage.removeItem('authUser'); 
+    localStorage.removeItem('token');
+    localStorage.removeItem('role');
+  };
 
   return (
     <AuthContext.Provider value={{ user, login, logout }}>
@@ -34,7 +45,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   );
 };
 
-// Error vacchindi deeni valle, idhi unte import error radhu
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (context === undefined) {
