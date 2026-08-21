@@ -17,6 +17,9 @@ import {
   LogOut
 } from 'lucide-react';
 
+// Import logo from assets
+import logoImg from '../../assets/logo.png';
+
 const Sidebar: React.FC = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -56,21 +59,21 @@ const Sidebar: React.FC = () => {
       {/* Top Section: Brand Header & Scrollable Nav List */}
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
         
-        {/* Brand Logo Header */}
-        <div className="flex items-center justify-between px-2 pb-4 pt-1 shrink-0">
-          <div className="flex items-center space-x-2.5">
-            <div className="relative w-7 h-7 bg-slate-900 rounded-full flex items-center justify-center shrink-0">
-              <div className="w-3 h-3 bg-white rounded-full" />
-              <div className="absolute top-0.5 right-0.5 w-2 h-2 bg-white rounded-full" />
-            </div>
-            {!isCollapsed && (
-              <span className="text-lg font-extrabold text-slate-900 tracking-tight whitespace-nowrap">
-                Metrix
-              </span>
-            )}
+        {/* Brand Logo Header (Adjusted with left padding to shift right) */}
+        <div className="flex items-center justify-between px-1 pb-4 pt-1 shrink-0">
+          <div className={`flex items-center overflow-hidden w-full ${isCollapsed ? 'justify-center' : 'pl-3'}`}>
+            <img
+              src={logoImg}
+              alt="Metrix Logo"
+              className={`${
+                isCollapsed
+                  ? 'w-12 h-12 object-contain'
+                  : 'h-16 w-auto max-w-[200px] object-contain'
+              } transition-all duration-200`}
+            />
           </div>
           {!isCollapsed && (
-            <button className="text-slate-400 hover:text-slate-700 transition">
+            <button className="text-slate-400 hover:text-slate-700 transition shrink-0">
               <MoreVertical className="w-4 h-4" />
             </button>
           )}
