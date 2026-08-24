@@ -3,18 +3,21 @@ import Login from '../pages/Auth/Login';
 import MainLayout from '../components/layout/MainLayout';
 import ProtectedRoute from './ProtectedRoute';
 import MainDashboard from '../pages/Dashboard/MainDashboard';
+import XlsxUploader from '../features/admin/XlsxUploader';
+import AdminTickets from '../features/admin/AdminTickets';
+import Esculation from '../features/admin/Esculation';
 
 const AppRoutes = () => {
   return (
     <Routes>
-      {/* Public Route */}
       <Route path="/login" element={<Login />} />
       <Route path="/" element={<Navigate to="/login" />} />
 
-      {/* Protected Routes inside MainLayout (Contains Sidebar & Navbar) */}
       <Route element={<ProtectedRoute><MainLayout /></ProtectedRoute>}>
          <Route path="/dashboard" element={<MainDashboard />} />
-         {/* Team specific routes ikkada add chestham */}
+         <Route path="/admin/xlsx" element={<XlsxUploader />} />
+         <Route path="/admin/tickets" element={<AdminTickets />} />
+         <Route path="/admin/escalations" element={<Esculation />} />
       </Route>
     </Routes>
   );
