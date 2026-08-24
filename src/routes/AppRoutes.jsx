@@ -4,6 +4,9 @@ import Login from '../pages/Auth/Login';
 import MainLayout from '../components/layout/MainLayout';
 import ProtectedRoute from './ProtectedRoute';
 import MainDashboard from '../pages/Dashboard/MainDashboard';
+import XlsxUploader from '../features/admin/XlsxUploader';
+import AdminTickets from '../features/admin/AdminTickets';
+import Esculation from '../features/admin/Esculation';
 
 import DocumentationWorkspace from '../features/documentation/DocumentationWorkspace';
 import ClientDetailsView from '../features/documentation/ClientDetailsView';
@@ -38,6 +41,9 @@ const AppRoutes = () => {
          <Route path="/prep/queries" element={<PreparationWorkspace />} />
          <Route path="/prep/detail/:id" element={<PreparationDetailsView />} />
          
+         <Route path="/admin/xlsx" element={<XlsxUploader />} />
+         <Route path="/admin/tickets" element={<AdminTickets />} />
+         <Route path="/admin/escalations" element={<Esculation />} />
       </Route>
     </Routes>
   );
