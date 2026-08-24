@@ -26,6 +26,7 @@ const Login: React.FC = () => {
       'admin@metrixtax.com': { id: '1', name: 'Admin Boss', role: 'ADMIN', team: 'NONE' },
       'lead.prep@metrixtax.com': { id: '2', name: 'Prep Lead', role: 'TEAMLEAD', team: 'PREPARATION' },
       'emp.doc@metrixtax.com': { id: '3', name: 'Doc Employee', role: 'EMPLOYEE', team: 'DOCUMENTATION' },
+      'emp.prep@metrixtax.com': { id: '5', name: 'Prep Employee', role: 'EMPLOYEE', team: 'PREPARATION' },
       'emp.efile@metrixtax.com': { id: '4', name: 'Filing Employee', role: 'EMPLOYEE', team: 'E-FILING' }
     };
 
@@ -35,7 +36,7 @@ const Login: React.FC = () => {
       login(selectedUser);
       navigate('/dashboard', { replace: true }); 
     } else {
-      alert("Invalid test email! Use admin@metrixtax.com, lead.prep@metrixtax.com, emp.doc@metrixtax.com, or emp.efile@metrixtax.com");
+      alert("Invalid test email! Use admin@metrixtax.com, lead.prep@metrixtax.com, emp.doc@metrixtax.com, emp.prep@metrixtax.com, or emp.efile@metrixtax.com");
     }
   };
 
