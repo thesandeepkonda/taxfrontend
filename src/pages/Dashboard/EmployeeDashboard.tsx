@@ -7,32 +7,37 @@ import {
   AlertCircle, 
   Clock, 
   ChevronRight, 
-  FileText,
-  Send,
-  Search,
-  MessageSquare
+  FileText, 
+  Send, 
+  Search, 
+  MessageSquare 
 } from 'lucide-react';
 
 const EmployeeDashboard: React.FC = () => {
   const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Dummy logic to change content based on team
+  // Dynamic logic to change content based on team
   const isDocTeam = user?.team === 'DOCUMENTATION';
+  const isPrepTeam = user?.team === 'PREPARATION';
   const isEfilingTeam = user?.team === 'E-FILING';
 
   // Dynamic Metrics based on Team
   const metrics = {
-    pending: isDocTeam ? 24 : isEfilingTeam ? 12 : 8,
-    completed: isDocTeam ? 45 : isEfilingTeam ? 30 : 15,
-    urgent: isDocTeam ? 5 : isEfilingTeam ? 2 : 1
+    pending: isDocTeam ? 24 : isPrepTeam ? 18 : isEfilingTeam ? 12 : 8,
+    completed: isDocTeam ? 45 : isPrepTeam ? 22 : isEfilingTeam ? 30 : 15,
+    urgent: isDocTeam ? 5 : isPrepTeam ? 4 : isEfilingTeam ? 2 : 1
   };
 
-  // Dynamic Queue Data
+  // Dynamic Queue Data based on Team
   const queueData = isDocTeam ? [
-    { id: 'TX-1042', client: 'Acme Corp', status: 'Pending W2', time: '2 hrs ago', priority: 'High' },
-    { id: 'TX-1045', client: 'John Doe', status: 'Reviewing 1099', time: '4 hrs ago', priority: 'Medium' },
-    { id: 'TX-1050', client: 'TechFlow LLC', status: 'Missing Sign', time: '1 day ago', priority: 'Low' },
+    { id: 'LD-1042', client: 'Acme Corp', status: 'Pending W2', time: '2 hrs ago', priority: 'High' },
+    { id: 'LD-1045', client: 'John Doe', status: 'Reviewing 1099', time: '4 hrs ago', priority: 'Medium' },
+    { id: 'LD-1050', client: 'TechFlow LLC', status: 'Missing Sign', time: '1 day ago', priority: 'Low' },
+  ] : isPrepTeam ? [
+    { id: 'PRP-001', client: 'Michael Smith', status: 'Pending Prep', time: '1 hr ago', priority: 'High' },
+    { id: 'PRP-002', client: 'John Doe', status: 'In Progress', time: '3 hrs ago', priority: 'Medium' },
+    { id: 'PRP-003', client: 'Sara Lee', status: 'Query Raised', time: '1 day ago', priority: 'Low' },
   ] : isEfilingTeam ? [
     { id: 'TX-0992', client: 'Stark Ind.', status: 'Ready to Transmit', time: '15 mins ago', priority: 'High' },
     { id: 'TX-0995', client: 'Wayne Ent.', status: 'IRS Rejected', time: '1 hr ago', priority: 'High' },
@@ -54,7 +59,6 @@ const EmployeeDashboard: React.FC = () => {
             Workspace: <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-md text-xs font-bold">{user?.team}</span>
           </p>
         </div>
-
         <div className="relative">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input 
@@ -117,7 +121,7 @@ const EmployeeDashboard: React.FC = () => {
               <table className="w-full text-left text-sm">
                 <thead className="bg-gray-50/50 sticky top-0 z-10">
                   <tr className="text-xs font-bold text-gray-400 uppercase tracking-wider">
-                    <th className="p-3 rounded-tl-lg">File ID</th>
+                    <th className="p-3 rounded-tl-lg">Task ID</th>
                     <th className="p-3">Client Name</th>
                     <th className="p-3">Status</th>
                     <th className="p-3">Last Updated</th>
@@ -163,11 +167,11 @@ const EmployeeDashboard: React.FC = () => {
             <div className="grid grid-cols-2 gap-3">
               <button className="flex flex-col items-center justify-center p-4 rounded-xl border border-gray-100 hover:border-[#5f41b2] hover:bg-[#5f41b2]/5 transition group">
                 <FileText className="w-6 h-6 text-gray-400 group-hover:text-[#5f41b2] mb-2 transition" />
-                <span className="text-xs font-bold text-gray-600 group-hover:text-[#5f41b2]">New File</span>
+                <span className="text-xs font-bold text-gray-600 group-hover:text-[#5f41b2]">New Task</span>
               </button>
               <button className="flex flex-col items-center justify-center p-4 rounded-xl border border-gray-100 hover:border-blue-500 hover:bg-blue-50 transition group">
                 <Send className="w-6 h-6 text-gray-400 group-hover:text-blue-500 mb-2 transition" />
-                <span className="text-xs font-bold text-gray-600 group-hover:text-blue-600">Client Email</span>
+                <span className="text-xs font-bold text-gray-600 group-hover:text-blue-600">Client Message</span>
               </button>
             </div>
           </div>
@@ -188,7 +192,7 @@ const EmployeeDashboard: React.FC = () => {
                 </div>
                 <div className="bg-gray-50 p-3 rounded-xl rounded-tl-none border border-gray-100 text-sm">
                   <p className="font-bold text-[#1b2559] text-xs mb-1">Team Lead <span className="text-gray-400 font-normal ml-2">10:45 AM</span></p>
-                  <p className="text-gray-600">Please prioritize the Acme Corp W2 verification. They are calling in 1 hour.</p>
+                  <p className="text-gray-600">Please prioritize the urgent verifications. We have clients calling in 1 hour.</p>
                 </div>
               </div>
 
@@ -198,7 +202,7 @@ const EmployeeDashboard: React.FC = () => {
                 </div>
                 <div className="bg-purple-50 p-3 rounded-xl rounded-tl-none border border-purple-100 text-sm w-full">
                   <p className="font-bold text-purple-900 text-xs mb-1">System Alert <span className="text-purple-400 font-normal ml-2">09:00 AM</span></p>
-                  <p className="text-purple-700">IRS Gateway is currently experiencing 5-minute delays. Plan transmissions accordingly.</p>
+                  <p className="text-purple-700">IRS Gateway is currently experiencing minor delays. Plan accordingly.</p>
                 </div>
               </div>
             </div>
