@@ -22,12 +22,15 @@ const Login: React.FC = () => {
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
 
+    // Added new credentials for Estimation and Payments teams
     const dummyUsers: Record<string, User> = {
       'admin@metrixtax.com': { id: '1', name: 'Admin Boss', role: 'ADMIN', team: 'NONE' },
       'lead.prep@metrixtax.com': { id: '2', name: 'Prep Lead', role: 'TEAMLEAD', team: 'PREPARATION' },
       'emp.doc@metrixtax.com': { id: '3', name: 'Doc Employee', role: 'EMPLOYEE', team: 'DOCUMENTATION' },
       'emp.prep@metrixtax.com': { id: '5', name: 'Prep Employee', role: 'EMPLOYEE', team: 'PREPARATION' },
-      'emp.efile@metrixtax.com': { id: '4', name: 'Filing Employee', role: 'EMPLOYEE', team: 'E-FILING' }
+      'emp.efile@metrixtax.com': { id: '4', name: 'Filing Employee', role: 'EMPLOYEE', team: 'E-FILING' },
+      'emp.est@metrixtax.com': { id: '6', name: 'Estimation Employee', role: 'EMPLOYEE', team: 'ESTIMATION' },
+      'emp.pay@metrixtax.com': { id: '7', name: 'Payments Employee', role: 'EMPLOYEE', team: 'PAYMENTS' }
     };
 
     const selectedUser = dummyUsers[email];
@@ -36,7 +39,7 @@ const Login: React.FC = () => {
       login(selectedUser);
       navigate('/dashboard', { replace: true }); 
     } else {
-      alert("Invalid test email! Use admin@metrixtax.com, lead.prep@metrixtax.com, emp.doc@metrixtax.com, emp.prep@metrixtax.com, or emp.efile@metrixtax.com");
+      alert("Invalid test email! Use admin@metrixtax.com, lead.prep@metrixtax.com, emp.doc@metrixtax.com, emp.prep@metrixtax.com, emp.est@metrixtax.com, emp.pay@metrixtax.com, or emp.efile@metrixtax.com");
     }
   };
 
@@ -71,7 +74,7 @@ const Login: React.FC = () => {
               Welcome<br/>to<br/>CRM Portal
             </h2>
 
-            {/* CSS Phone Mockup - Exact previous structure restored */}
+            {/* CSS Phone Mockup */}
             <div className="hidden lg:flex w-[280px] h-[550px] bg-white rounded-[2.5rem] border-[6px] border-gray-800 shadow-2xl flex-col relative overflow-hidden shrink-0">
               <div className="absolute top-0 inset-x-0 h-6 bg-gray-800 rounded-b-xl w-32 mx-auto"></div>
               
