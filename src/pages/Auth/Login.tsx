@@ -71,7 +71,7 @@ const Login: React.FC = () => {
           <div className="flex-1 flex flex-col lg:flex-row items-center justify-center lg:justify-end gap-6 lg:gap-10 w-full">
             
             <h2 className="text-4xl lg:text-5xl font-bold text-white text-center lg:text-right leading-[1.15]">
-              Welcome<br/>to<br/>CRM Portal
+              Welcome<br/>to<br/>Metrix CRM Portal
             </h2>
 
             {/* CSS Phone Mockup */}
