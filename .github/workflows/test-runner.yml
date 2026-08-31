@@ -39,3 +39,20 @@ jobs:
               Write-Error "Deployment folder does not exist: $path"
               exit 1
           }
+
+      - name: Test Deployment Write Access
+        shell: powershell
+        run: |
+          $path = "C:\test\tax-frontend"
+          $testFile = "$path\github-actions-test.txt"
+
+          "GitHub Actions deployment test" | Out-File $testFile -Force
+
+          if (Test-Path $testFile) {
+              Write-Host "Write permission is working."
+              Remove-Item $testFile -Force
+          }
+          else {
+              Write-Error "Cannot write to $path"
+              exit 1
+          }
