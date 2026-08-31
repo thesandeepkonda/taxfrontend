@@ -5,30 +5,30 @@ on:
 
 jobs:
   test:
-    runs-on: self-hosted
+    runs-on: [self-hosted, Windows, X64, taxfrontend]
 
     steps:
-      - name: Test Windows Server
+      - name: Test Runner
         shell: powershell
         run: |
-          Write-Host "================================="
-          Write-Host "GitHub Actions Runner Connected"
-          Write-Host "================================="
-          Write-Host "Computer: $env:COMPUTERNAME"
+          Write-Host "===================================="
+          Write-Host "GitHub Actions Runner is working"
+          Write-Host "===================================="
+          Write-Host "Computer Name: $env:COMPUTERNAME"
           Write-Host "User: $env:USERNAME"
-          Write-Host "Working Directory: $env:GITHUB_WORKSPACE"
+          Write-Host "Workspace: $env:GITHUB_WORKSPACE"
 
       - name: Check Node
         shell: powershell
         run: |
-          Write-Host "Node:"
+          Write-Host "Node version:"
           node -v
 
-          Write-Host "NPM:"
+          Write-Host "NPM version:"
           npm -v
 
       - name: Check IIS
         shell: powershell
         run: |
-          Write-Host "Checking IIS..."
-          & iisreset /status
+          Write-Host "IIS status:"
+          iisreset /status
