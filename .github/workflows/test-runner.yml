@@ -1,28 +1,31 @@
-name: Test Windows Runner
+name: Deploy Tax Frontend
 
 on:
   push:
     branches:
       - main
+
   workflow_dispatch:
 
 jobs:
-  test:
+
+  build-and-deploy:
+
     runs-on: [self-hosted, Windows, X64, taxfrontend]
 
     steps:
 
-      - name: Test Runner
-        shell: powershell
-        run: |
-          Write-Host "===================================="
-          Write-Host "GitHub Actions Runner is working"
-          Write-Host "===================================="
-          Write-Host "Computer: $env:COMPUTERNAME"
-          Write-Host "User: $env:USERNAME"
-          Write-Host "Workspace: $env:GITHUB_WORKSPACE"
+      # --------------------------------
+      # 1. Checkout source code
+      # --------------------------------
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-      - name: Check Node
+
+      # --------------------------------
+      # 2. Check Node
+      # --------------------------------
+      - name: Check Node and NPM
         shell: powershell
         run: |
           Write-Host "Node version:"
@@ -31,32 +34,97 @@ jobs:
           Write-Host "NPM version:"
           npm -v
 
-      - name: Prepare Deployment Folder
+
+      # --------------------------------
+      # 3. Install dependencies
+      # --------------------------------
+      - name: Install Dependencies
         shell: powershell
         run: |
-          $path = "C:\test\tax-frontend"
+          npm ci
 
-          if (!(Test-Path $path)) {
-              New-Item -ItemType Directory -Path $path -Force
-              Write-Host "Created deployment folder: $path"
-          }
-          else {
-              Write-Host "Deployment folder already exists: $path"
-          }
 
-      - name: Test Deployment Write Access
+      # --------------------------------
+      # 4. Build React/Vite
+      # --------------------------------
+      - name: Build Frontend
         shell: powershell
         run: |
-          $path = "C:\test\tax-frontend"
-          $testFile = "$path\github-actions-test.txt"
+          npm run build
 
-          "GitHub Actions test" | Out-File $testFile -Force
 
-          if (Test-Path $testFile) {
-              Write-Host "SUCCESS: Runner can write to IIS deployment folder."
-              Remove-Item $testFile -Force
-          }
-          else {
-              Write-Error "Runner cannot write to deployment folder."
+      # --------------------------------
+      # 5. Verify build
+      # --------------------------------
+      - name: Verify Build
+        shell: powershell
+        run: |
+
+          $buildPath = "$env:GITHUB_WORKSPACE\dist"
+
+          if (!(Test-Path $buildPath)) {
+              Write-Error "dist folder was not created."
               exit 1
           }
+
+          Write-Host "Build successful."
+          Write-Host "Build location:"
+          Write-Host $buildPath
+
+          Get-ChildItem $buildPath
+
+
+      # --------------------------------
+      # 6. Deploy to IIS
+      # --------------------------------
+      - name: Deploy to IIS
+        shell: powershell
+        run: |
+
+          $source = "$env:GITHUB_WORKSPACE\dist"
+          $destination = "C:\test\tax-frontend"
+
+          Write-Host "Source:"
+          Write-Host $source
+
+          Write-Host "Destination:"
+          Write-Host $destination
+
+
+          # Make sure destination exists
+          if (!(Test-Path $destination)) {
+
+              New-Item `
+                -ItemType Directory `
+                -Path $destination `
+                -Force
+
+          }
+
+
+          # Remove old frontend files
+          Get-ChildItem `
+            -Path $destination `
+            -Force |
+            Where-Object {
+                $_.Name -ne "web.config"
+            } |
+            Remove-Item `
+              -Recurse `
+              -Force
+
+
+          # Copy new build
+          Copy-Item `
+            -Path "$source\*" `
+            -Destination $destination `
+            -Recurse `
+            -Force
+
+
+          Write-Host "===================================="
+          Write-Host "Tax Frontend Deployment Successful"
+          Write-Host "===================================="
+
+
+          Get-ChildItem $destination
