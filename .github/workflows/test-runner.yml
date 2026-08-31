@@ -14,7 +14,7 @@ jobs:
           Write-Host "===================================="
           Write-Host "GitHub Actions Runner is working"
           Write-Host "===================================="
-          Write-Host "Computer Name: $env:COMPUTERNAME"
+          Write-Host "Computer: $env:COMPUTERNAME"
           Write-Host "User: $env:USERNAME"
           Write-Host "Workspace: $env:GITHUB_WORKSPACE"
 
@@ -27,8 +27,15 @@ jobs:
           Write-Host "NPM version:"
           npm -v
 
-      - name: Check IIS
+      - name: Check Deployment Folder
         shell: powershell
         run: |
-          Write-Host "IIS status:"
-          iisreset /status
+          $path = "C:\test\tax-frontend"
+
+          if (Test-Path $path) {
+              Write-Host "Deployment folder exists: $path"
+          }
+          else {
+              Write-Error "Deployment folder does not exist: $path"
+              exit 1
+          }
