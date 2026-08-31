@@ -11,6 +11,7 @@ jobs:
     runs-on: [self-hosted, Windows, X64, taxfrontend]
 
     steps:
+
       - name: Test Runner
         shell: powershell
         run: |
@@ -30,15 +31,32 @@ jobs:
           Write-Host "NPM version:"
           npm -v
 
-      - name: Check Deployment Folder
+      - name: Prepare Deployment Folder
         shell: powershell
         run: |
           $path = "C:\test\tax-frontend"
 
-          if (Test-Path $path) {
-              Write-Host "Deployment folder exists: $path"
+          if (!(Test-Path $path)) {
+              New-Item -ItemType Directory -Path $path -Force
+              Write-Host "Created deployment folder: $path"
           }
           else {
-              Write-Error "Deployment folder does not exist: $path"
+              Write-Host "Deployment folder already exists: $path"
+          }
+
+      - name: Test Deployment Write Access
+        shell: powershell
+        run: |
+          $path = "C:\test\tax-frontend"
+          $testFile = "$path\github-actions-test.txt"
+
+          "GitHub Actions test" | Out-File $testFile -Force
+
+          if (Test-Path $testFile) {
+              Write-Host "SUCCESS: Runner can write to IIS deployment folder."
+              Remove-Item $testFile -Force
+          }
+          else {
+              Write-Error "Runner cannot write to deployment folder."
               exit 1
           }
