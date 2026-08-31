@@ -1,0 +1,34 @@
+name: Test Windows Runner
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: self-hosted
+
+    steps:
+      - name: Test Windows Server
+        shell: powershell
+        run: |
+          Write-Host "================================="
+          Write-Host "GitHub Actions Runner Connected"
+          Write-Host "================================="
+          Write-Host "Computer: $env:COMPUTERNAME"
+          Write-Host "User: $env:USERNAME"
+          Write-Host "Working Directory: $env:GITHUB_WORKSPACE"
+
+      - name: Check Node
+        shell: powershell
+        run: |
+          Write-Host "Node:"
+          node -v
+
+          Write-Host "NPM:"
+          npm -v
+
+      - name: Check IIS
+        shell: powershell
+        run: |
+          Write-Host "Checking IIS..."
+          & iisreset /status
