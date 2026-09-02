@@ -2,46 +2,85 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { 
-  Users, 
-  CheckSquare, 
-  AlertTriangle, 
-  Activity, 
-  Search, 
-  ChevronRight, 
-  MessageSquare,
-  Send,
-  MoreVertical
+  Users, CheckSquare, AlertTriangle, Activity, Search, 
+  MessageSquare, Send, MoreVertical 
 } from 'lucide-react';
 
 const TeamLeadDashboard: React.FC = () => {
   const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
+  const [broadcastMsg, setBroadcastMsg] = useState('');
+  
+  // Safe check for team name
+  const teamName = user?.team && user.team !== 'NONE' ? user.team : 'PREPARATION';
 
-  // Dynamic Data based on Team
-  const teamName = user?.team || 'General';
-
-  // KPI Metrics
-  const metrics = {
-    efficiency: '94%',
-    pendingApprovals: 14,
-    escalations: 3,
-    activeAgents: '8 / 10'
+  // DYNAMIC CONFIGURATION FOR TEAMS
+  const teamConfigs: Record<string, any> = {
+    'DOCUMENTATION': {
+      metrics: { efficiency: '92%', pendingApprovals: 8, escalations: 2, activeAgents: '4 / 5' },
+      members: [
+        { id: 'DOC-01', name: 'Rahul Sharma', status: 'Online', activeTasks: 18, efficiency: '94%' },
+        { id: 'DOC-02', name: 'Priya Patel', status: 'In Meeting', activeTasks: 5, efficiency: '88%' },
+        { id: 'DOC-03', name: 'Aman Singh', status: 'Online', activeTasks: 22, efficiency: '97%' }
+      ],
+      actions: [
+        { id: 'LD-1099', agent: 'Rahul Sharma', type: 'Approval', issue: 'Lead Assignment Override', time: '15 mins ago' },
+        { id: 'LD-1102', agent: 'Priya Patel', type: 'Escalation', issue: 'Missing W2 for H1B Client', time: '1 hr ago' }
+      ]
+    },
+    'PREPARATION': {
+      metrics: { efficiency: '96%', pendingApprovals: 14, escalations: 3, activeAgents: '8 / 10' },
+      members: [
+        { id: 'PRP-01', name: 'John Doe', status: 'Online', activeTasks: 12, efficiency: '96%' },
+        { id: 'PRP-02', name: 'Sarah Martins', status: 'In Meeting', activeTasks: 8, efficiency: '91%' },
+        { id: 'PRP-03', name: 'Akin Siyan', status: 'Online', activeTasks: 15, efficiency: '98%' }
+      ],
+      actions: [
+        { id: 'TX-1099', agent: 'John Doe', type: 'Approval', issue: 'Final Review - High Value', time: '10 mins ago' },
+        { id: 'TX-1102', agent: 'Sarah Martins', type: 'Escalation', issue: 'Client Dispute - Missing Form', time: '1 hr ago' }
+      ]
+    },
+    'ESTIMATION': {
+      metrics: { efficiency: '98%', pendingApprovals: 5, escalations: 1, activeAgents: '3 / 3' },
+      members: [
+        { id: 'EST-01', name: 'Michael Smith', status: 'Online', activeTasks: 7, efficiency: '99%' },
+        { id: 'EST-02', name: 'Sara Lee', status: 'Online', activeTasks: 4, efficiency: '95%' }
+      ],
+      actions: [
+        { id: 'EST-881', agent: 'Michael Smith', type: 'Approval', issue: 'Discount Code Override', time: '5 mins ago' },
+        { id: 'EST-882', agent: 'Sara Lee', type: 'Escalation', issue: 'High Refund Verification', time: '2 hrs ago' }
+      ]
+    },
+    'PAYMENTS': {
+      metrics: { efficiency: '99%', pendingApprovals: 2, escalations: 0, activeAgents: '2 / 2' },
+      members: [
+        { id: 'PAY-01', name: 'David Kim', status: 'Online', activeTasks: 10, efficiency: '98%' },
+        { id: 'PAY-02', name: 'Lisa Ray', status: 'Offline', activeTasks: 0, efficiency: '100%' }
+      ],
+      actions: [
+        { id: 'INV-402', agent: 'David Kim', type: 'Approval', issue: 'Refund Issue Request', time: '30 mins ago' }
+      ]
+    },
+    'E-FILING': {
+      metrics: { efficiency: '95%', pendingApprovals: 12, escalations: 5, activeAgents: '5 / 6' },
+      members: [
+        { id: 'EFL-01', name: 'Alex Wong', status: 'Online', activeTasks: 35, efficiency: '93%' },
+        { id: 'EFL-02', name: 'Chloe Chen', status: 'In Meeting', activeTasks: 12, efficiency: '90%' }
+      ],
+      actions: [
+        { id: 'TX-9901', agent: 'Alex Wong', type: 'Escalation', issue: 'IRS Rejection 1040', time: '20 mins ago' },
+        { id: 'TX-9902', agent: 'Chloe Chen', type: 'Escalation', issue: 'State Transmit Error', time: '3 hrs ago' }
+      ]
+    }
   };
 
-  // Mock Team Members Data
-  const teamMembers = [
-    { id: 'EMP-01', name: 'John Doe', status: 'Online', activeTasks: 12, efficiency: '96%' },
-    { id: 'EMP-02', name: 'Sarah Martins', status: 'In Meeting', activeTasks: 8, efficiency: '91%' },
-    { id: 'EMP-03', name: 'Akin Siyan', status: 'Online', activeTasks: 15, efficiency: '98%' },
-    { id: 'EMP-04', name: 'Nimi Odu', status: 'Offline', activeTasks: 0, efficiency: '88%' },
-  ];
+  const currentConfig = teamConfigs[teamName];
 
-  // Mock Approvals & Escalations
-  const actionItems = [
-    { id: 'TX-1099', agent: 'John Doe', type: 'Approval', issue: 'Final Review - High Value', time: '10 mins ago' },
-    { id: 'TX-1102', agent: 'Sarah Martins', type: 'Escalation', issue: 'Client Dispute - Missing W2', time: '1 hr ago' },
-    { id: 'TX-1105', agent: 'Akin Siyan', type: 'Approval', issue: 'Fee Discount Override', time: '2 hrs ago' },
-  ];
+  const handleBroadcastSend = () => {
+    if (!broadcastMsg.trim()) return;
+    alert(`Broadcast sent to ${teamName} team: ${broadcastMsg}`);
+    setBroadcastMsg('');
+  };
 
   return (
     <div className="w-full h-full flex flex-col font-sans overflow-hidden">
@@ -57,7 +96,6 @@ const TeamLeadDashboard: React.FC = () => {
             Managing Unit: <span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded-md text-xs font-bold">{teamName}</span>
           </p>
         </div>
-
         <div className="relative">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input 
@@ -84,7 +122,7 @@ const TeamLeadDashboard: React.FC = () => {
               </div>
               <div>
                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Team Efficiency</p>
-                <h3 className="text-xl font-extrabold text-[#1b2559]">{metrics.efficiency}</h3>
+                <h3 className="text-xl font-extrabold text-[#1b2559]">{currentConfig.metrics.efficiency}</h3>
               </div>
             </div>
             
@@ -92,9 +130,9 @@ const TeamLeadDashboard: React.FC = () => {
               <div className="w-10 h-10 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-600 shrink-0">
                 <CheckSquare className="w-5 h-5" />
               </div>
-               <div>
+              <div>
                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Pending Approvals</p>
-                <h3 className="text-xl font-extrabold text-[#1b2559]">{metrics.pendingApprovals}</h3>
+                <h3 className="text-xl font-extrabold text-[#1b2559]">{currentConfig.metrics.pendingApprovals}</h3>
               </div>
             </div>
 
@@ -102,9 +140,9 @@ const TeamLeadDashboard: React.FC = () => {
               <div className="w-10 h-10 rounded-full bg-rose-50 flex items-center justify-center text-rose-600 shrink-0">
                 <AlertTriangle className="w-5 h-5" />
               </div>
-               <div>
+              <div>
                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Escalations</p>
-                <h3 className="text-xl font-extrabold text-[#1b2559]">{metrics.escalations}</h3>
+                <h3 className="text-xl font-extrabold text-[#1b2559]">{currentConfig.metrics.escalations}</h3>
               </div>
             </div>
 
@@ -112,9 +150,9 @@ const TeamLeadDashboard: React.FC = () => {
               <div className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600 shrink-0">
                 <Users className="w-5 h-5" />
               </div>
-               <div>
+              <div>
                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Active Agents</p>
-                <h3 className="text-xl font-extrabold text-[#1b2559]">{metrics.activeAgents}</h3>
+                <h3 className="text-xl font-extrabold text-[#1b2559]">{currentConfig.metrics.activeAgents}</h3>
               </div>
             </div>
           </div>
@@ -138,7 +176,7 @@ const TeamLeadDashboard: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                  {teamMembers.map((member, idx) => (
+                  {currentConfig.members.map((member: any, idx: number) => (
                     <tr key={idx} className="hover:bg-blue-50/30 transition group">
                       <td className="p-3 font-semibold text-gray-800 flex items-center gap-3">
                         <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-xs font-bold text-gray-600">
@@ -189,7 +227,7 @@ const TeamLeadDashboard: React.FC = () => {
             </div>
             
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
-              {actionItems.map((item, idx) => (
+              {currentConfig.actions.map((item: any, idx: number) => (
                 <div key={idx} className="border border-gray-100 rounded-xl p-3 hover:border-blue-200 transition cursor-pointer hover:shadow-sm">
                   <div className="flex justify-between items-start mb-2">
                     <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
@@ -203,6 +241,11 @@ const TeamLeadDashboard: React.FC = () => {
                   <p className="text-xs text-gray-500 font-medium">Assigned to: <span className="text-gray-700 font-bold">{item.agent}</span></p>
                 </div>
               ))}
+              {currentConfig.actions.length === 0 && (
+                <div className="text-center p-6 text-gray-400 text-sm">
+                  No action items pending.
+                </div>
+              )}
             </div>
           </div>
 
@@ -216,12 +259,17 @@ const TeamLeadDashboard: React.FC = () => {
             <div className="space-y-3">
               <textarea 
                 rows={3}
+                value={broadcastMsg}
+                onChange={(e) => setBroadcastMsg(e.target.value)}
                 placeholder="Send an announcement to the entire team..."
                 className="w-full text-sm border border-gray-200 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-[#5f41b2] resize-none bg-gray-50"
               ></textarea>
               <div className="flex justify-between items-center">
                 <span className="text-xs text-gray-400 font-medium">Visible to {teamName} team only</span>
-                <button className="bg-[#5f41b2] hover:bg-[#4d3396] text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors">
+                <button 
+                  onClick={handleBroadcastSend}
+                  className="bg-[#5f41b2] hover:bg-[#4d3396] text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors"
+                >
                   <Send className="w-4 h-4" /> Send
                 </button>
               </div>
@@ -229,6 +277,7 @@ const TeamLeadDashboard: React.FC = () => {
           </div>
 
         </div>
+
       </div>
     </div>
   );
