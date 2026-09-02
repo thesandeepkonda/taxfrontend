@@ -4,8 +4,8 @@ import { isTokenExpired } from '../utils/jwtDecoder';
 import { store } from '../store';
 import { logout, setCredentials } from '../store/slices/authSlice';
 
-const DEV1_IP = 'http://192.168.0.96:8080/api'; // Your backend IP
-const DEV2_IP = 'http://192.168.0.96:8080/api';
+const DEV1_IP = 'http://192.168.0.115:8081/api'; // Your backend IP
+const DEV2_IP = 'http://192.168.0.115:8081/api';
 
 interface QueuedRequest {
   resolve: (token: string) => void;
