@@ -10,9 +10,21 @@ const TeamLeadDashboard: React.FC = () => {
   const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [broadcastMsg, setBroadcastMsg] = useState('');
+
+  // FIX: Safely determine the config key using substring matching
+  const rawDeptName = String(user?.departmentName || user?.teamName || user?.team || '').toUpperCase();
+  let configKey = 'PREPARATION'; // Fallback default
   
-  // Safe check for team name
-  const teamName = user?.team && user.team !== 'NONE' ? user.team : 'PREPARATION';
+  if (rawDeptName.includes('DOC')) configKey = 'DOCUMENTATION';
+  else if (rawDeptName.includes('PREP')) configKey = 'PREPARATION';
+  else if (rawDeptName.includes('ESTIM')) configKey = 'ESTIMATION';
+  else if (rawDeptName.includes('PAYMENT')) configKey = 'PAYMENTS';
+  else if (rawDeptName.includes('FILING')) configKey = 'E-FILING';
+
+  // FIX: Name to display in the UI (e.g., "Doc_Team_1")
+  const displayTeamName = (user?.teamName && user.teamName !== 'NONE') 
+    ? user.teamName 
+    : (user?.departmentName || configKey);
 
   // DYNAMIC CONFIGURATION FOR TEAMS
   const teamConfigs: Record<string, any> = {
@@ -74,11 +86,12 @@ const TeamLeadDashboard: React.FC = () => {
     }
   };
 
-  const currentConfig = teamConfigs[teamName];
+  // Safely assign the config using the resolved key
+  const currentConfig = teamConfigs[configKey];
 
   const handleBroadcastSend = () => {
     if (!broadcastMsg.trim()) return;
-    alert(`Broadcast sent to ${teamName} team: ${broadcastMsg}`);
+    alert(`Broadcast sent to ${displayTeamName} team: ${broadcastMsg}`);
     setBroadcastMsg('');
   };
 
@@ -93,7 +106,7 @@ const TeamLeadDashboard: React.FC = () => {
           </h1>
           <p className="text-sm text-gray-500 font-medium mt-1 flex items-center gap-2">
             Lead: <span className="font-bold text-[#1b2559]">{user?.name}</span> | 
-            Managing Unit: <span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded-md text-xs font-bold">{teamName}</span>
+            Managing Unit: <span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded-md text-xs font-bold">{displayTeamName}</span>
           </p>
         </div>
         <div className="relative">
@@ -214,6 +227,7 @@ const TeamLeadDashboard: React.FC = () => {
               </table>
             </div>
           </div>
+
         </div>
 
         {/* Right Column (Action Items & Broadcast) */}
@@ -241,6 +255,7 @@ const TeamLeadDashboard: React.FC = () => {
                   <p className="text-xs text-gray-500 font-medium">Assigned to: <span className="text-gray-700 font-bold">{item.agent}</span></p>
                 </div>
               ))}
+              
               {currentConfig.actions.length === 0 && (
                 <div className="text-center p-6 text-gray-400 text-sm">
                   No action items pending.
@@ -265,7 +280,7 @@ const TeamLeadDashboard: React.FC = () => {
                 className="w-full text-sm border border-gray-200 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-[#5f41b2] resize-none bg-gray-50"
               ></textarea>
               <div className="flex justify-between items-center">
-                <span className="text-xs text-gray-400 font-medium">Visible to {teamName} team only</span>
+                <span className="text-xs text-gray-400 font-medium">Visible to {displayTeamName} team only</span>
                 <button 
                   onClick={handleBroadcastSend}
                   className="bg-[#5f41b2] hover:bg-[#4d3396] text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors"
@@ -277,7 +292,6 @@ const TeamLeadDashboard: React.FC = () => {
           </div>
 
         </div>
-
       </div>
     </div>
   );

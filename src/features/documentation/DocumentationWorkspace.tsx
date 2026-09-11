@@ -6,28 +6,22 @@ import { useToast } from '../../contexts/ToastContext';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { AppDispatch, RootState } from '../../store';
 import { 
-  fetchDocClients, 
-  fetchFollowUpClients, 
-  fetchNotLiftedClients, 
+  fetchDocClients,
+  fetchClientsByStatuses,
   startClientCall, 
   endClientCall, 
   updateClientStatus, 
   postClientComment,
+  fetchCallHistory,
+  clearDocClientsSearch,
+  setCallHippoStatus,
   DocClient 
 } from '../../store/slices/docClientsSlice';
+import DocGlobalSearch from './DocGlobalSearch';
+import TaxOrganizerModal from './TaxOrganizerModal';
 import {
-  Phone,
-  Mail,
-  MessageCircle,
-  Search,
-  Filter,
-  Clock,
-  CheckCircle2,
-  XCircle,
-  Users,
-  Loader2,
-  PhoneOff,
-  X
+  Phone, Mail, MessageCircle, Clock,
+  CheckCircle2, XCircle, Users, Loader2, PhoneOff, X, FileText
 } from 'lucide-react';
 
 const DocumentationWorkspace: React.FC = () => {
@@ -36,52 +30,80 @@ const DocumentationWorkspace: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const dispatch = useDispatch<AppDispatch>();
-
-  const { list: clients, loading, activeCall } = useSelector((state: RootState) => state.docClients);
-  const [searchQuery, setSearchQuery] = useState('');
   
-  // Modal state for Follow Up & Call Back updates
+  const { 
+    list: clients, 
+    loading, 
+    activeCall, 
+    callHistory, 
+    searchResults, 
+    searchActive, 
+    isSearching,
+    isCallHippoAvailable,
+    isCallHippoStatusLoading
+  } = useSelector((state: RootState) => state.docClients);
+  
   const [statusModal, setStatusModal] = useState({ isOpen: false, client: null as DocClient | null, newStatus: '' });
   const [updatePayload, setUpdatePayload] = useState({ remarks: '', nextFollowUpAt: '' });
-
-  // Modal state for Call & Comments
+  
   const [callModal, setCallModal] = useState({ isOpen: false, client: null as DocClient | null, comment: '', commentType: 'Follow up' });
   const [endingCall, setEndingCall] = useState(false);
+  
+  // Tax Organizer Modal States
+  const [organizerModal, setOrganizerModal] = useState({ isOpen: false, clientId: 0, clientName: '' });
+
+  // Determine routing configuration based on current pathname
+  let pageConfig = { title: 'Assigned Leads', filterStatuses: [] as string[], isAssigned: true, Icon: Users };
+  const path = location.pathname;
+  if (path.includes('not-interested')) {
+    pageConfig = { title: 'Not Interested Leads', filterStatuses: ['NOT_INTERESTED'], isAssigned: false, Icon: XCircle };
+  } else if (path.includes('interested')) {
+    pageConfig = { title: 'Interested Leads', filterStatuses: ['INTERESTED'], isAssigned: false, Icon: CheckCircle2 };
+  } else if (path.includes('follow-ups')) {
+    pageConfig = { title: 'Follow-ups Queue', filterStatuses: ['FOLLOW_UP'], isAssigned: false, Icon: Clock };
+  } else if (path.includes('call-back')) {
+    pageConfig = { title: 'Call Back Queue', filterStatuses: ['CALL_BACK'], isAssigned: false, Icon: Phone };
+  } else if (path.includes('not-lifted')) {
+    pageConfig = { title: 'Not Lifted Queue', filterStatuses: ['NOT_LIFTED'], isAssigned: false, Icon: PhoneOff };
+  } else if (path.includes('completed')) {
+    pageConfig = { title: 'Completed / Docs OK', filterStatuses: ['COMPLETED'], isAssigned: false, Icon: CheckCircle2 };
+  }
 
   useEffect(() => {
-    if (location.pathname.includes('follow-ups')) {
-      dispatch(fetchFollowUpClients());
-    } else if (location.pathname.includes('not-lifted')) {
-      dispatch(fetchNotLiftedClients());
+    dispatch(clearDocClientsSearch());
+    
+    if (pageConfig.isAssigned) {
+      dispatch(fetchDocClients());
     } else {
-      dispatch(fetchDocClients()); 
+      dispatch(fetchClientsByStatuses(pageConfig.filterStatuses));
     }
+    dispatch(fetchCallHistory());
   }, [dispatch, location.pathname]);
 
-  // Adjust filtering logic so assigned tasks show all statuses
-  let pageConfig = { title: 'Assigned Leads', filterStatuses: [], showAll: true, Icon: Users };
-  if (location.pathname.includes('follow-ups')) {
-    pageConfig = { title: 'Follow-ups Queue', filterStatuses: ['FOLLOW_UP', 'CALL_BACK'], showAll: false, Icon: Clock };
-  } else if (location.pathname.includes('not-lifted')) {
-    pageConfig = { title: 'Not Lifted Queue', filterStatuses: ['NOT_LIFTED'], showAll: false, Icon: PhoneOff };
-  } else if (location.pathname.includes('completed')) {
-    pageConfig = { title: 'Completed / Docs OK', filterStatuses: ['COMPLETED', 'DOCUMENTS_RECEIVED'], showAll: false, Icon: CheckCircle2 };
-  } else if (location.pathname.includes('rejected')) {
-    pageConfig = { title: 'Not Interested Leads', filterStatuses: ['NOT_INTERESTED'], showAll: false, Icon: XCircle };
-  }
+  const handleCallHippoToggle = async () => {
+    const newStatus = !isCallHippoAvailable;
+    try {
+      await dispatch(setCallHippoStatus(newStatus)).unwrap();
+      showToast(`CallHippo status changed to ${newStatus ? 'Available' : 'Offline'}`, 'success');
+    } catch (err: any) {
+      showToast(err || 'Failed to update CallHippo status', 'error');
+    }
+  };
 
   const handlePhoneClick = async (client: DocClient) => {
     if (client.callInProgress) {
-      // Re-open modal if they accidentally closed it while the call is still active
       setCallModal({ isOpen: true, client, comment: '', commentType: 'Follow up' });
     } else {
+      if (!isCallHippoAvailable) {
+        showToast('Please set your CallHippo status to Available before making a call.', 'warning');
+        return;
+      }
+
       try {
-        await dispatch(startClientCall({
-          clientId: client.clientId,
-          providerCallId: `prov-${client.clientId}-${Date.now()}`
-        })).unwrap();
-        showToast(`Call started with ${client.name}`, 'info');
+        await dispatch(startClientCall(client.clientId)).unwrap(); // Pass only clientId now
+        showToast(`Call initiated with ${client.name}`, 'info');
         setCallModal({ isOpen: true, client, comment: '', commentType: 'Follow up' });
+        dispatch(fetchCallHistory());
       } catch (err: any) {
         showToast(err || 'Failed to start call', 'error');
       }
@@ -91,12 +113,11 @@ const DocumentationWorkspace: React.FC = () => {
   const handleEndCallSubmit = async () => {
     if (!callModal.client) return;
     setEndingCall(true);
-
+    
     try {
-      // Submit comment if one was entered
       if (callModal.comment.trim()) {
         await dispatch(postClientComment({
-          clientId: callModal.client.clientId,
+          clientId: callModal.client.clientId, 
           assignmentId: callModal.client.assignmentId,
           comment: callModal.comment,
           commentType: callModal.commentType
@@ -104,12 +125,21 @@ const DocumentationWorkspace: React.FC = () => {
         showToast('Comment saved successfully', 'success');
       }
 
-      // End Call
-      if (activeCall) {
+      let currentCallId = activeCall?.callId;
+      if (!currentCallId) {
+        const clientCalls = callHistory.filter(c => 
+          c.clientId === callModal.client?.assignmentId || c.clientId === callModal.client?.clientId
+        );
+        if (clientCalls.length > 0) {
+          currentCallId = clientCalls[0].callId;
+        }
+      }
+
+      if (currentCallId) {
         await dispatch(endClientCall({
-          callId: activeCall.callId,
+          callId: currentCallId,
           payload: {
-            providerCallId: `prov-${callModal.client.clientId}-${Date.now()}`,
+            providerCallId: `prov-${callModal.client.assignmentId}-${Date.now()}`,
             answered: true,
             recordingUrl: 'https://example.com/rec.mp3'
           }
@@ -118,6 +148,15 @@ const DocumentationWorkspace: React.FC = () => {
 
       showToast(`Call ended with ${callModal.client.name}`, 'success');
       setCallModal({ isOpen: false, client: null, comment: '', commentType: 'Follow up' });
+      
+      if (!searchActive) {
+        if (pageConfig.isAssigned) {
+          dispatch(fetchDocClients());
+        } else {
+          dispatch(fetchClientsByStatuses(pageConfig.filterStatuses));
+        }
+      }
+      dispatch(fetchCallHistory());
     } catch (err: any) {
       showToast(err || 'Failed to process call and comments', 'error');
     } finally {
@@ -130,76 +169,89 @@ const DocumentationWorkspace: React.FC = () => {
       setStatusModal({ isOpen: true, client, newStatus });
       setUpdatePayload({ remarks: '', nextFollowUpAt: '' });
     } else {
-      executeStatusUpdate(client.clientId, newStatus, null, null);
+      executeStatusUpdate(client.assignmentId, newStatus, null, null);
     }
   };
 
-  const executeStatusUpdate = async (id: number, status: string, remarks: string | null, date: string | null) => {
+  const executeStatusUpdate = async (assignmentId: number, status: string, remarks: string | null, date: string | null) => {
     try {
       const isoDate = date ? new Date(date).toISOString() : null;
-      await dispatch(updateClientStatus({ clientId: id, payload: { status, remarks, nextFollowUpAt: isoDate } })).unwrap();
+      await dispatch(updateClientStatus({ clientId: assignmentId, payload: { status, remarks, nextFollowUpAt: isoDate } })).unwrap();
       showToast('Status updated successfully', 'success');
       setStatusModal({ isOpen: false, client: null, newStatus: '' });
+      
+      if (!searchActive) {
+        if (pageConfig.isAssigned) {
+          dispatch(fetchDocClients());
+        } else {
+          dispatch(fetchClientsByStatuses(pageConfig.filterStatuses));
+        }
+      }
     } catch (e: any) {
       showToast(e || 'Failed to update status', 'error');
     }
   };
 
-  const filteredClients = clients
-    .filter(client => pageConfig.showAll || pageConfig.filterStatuses.includes(client.status))
-    .filter(client =>
-      client.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      String(client.clientId).includes(searchQuery.toLowerCase())
-    );
+  const sourceList = searchActive ? searchResults : clients;
+  const filteredClients = sourceList.filter(client => {
+    if (pageConfig.isAssigned) return true;
+    return pageConfig.filterStatuses.includes(client.status);
+  });
 
   const PageIcon = pageConfig.Icon;
 
   return (
     <div className="w-full h-full flex flex-col font-sans overflow-hidden relative">
-      <div className="flex items-center justify-between shrink-0 mb-6">
+      <div className="flex flex-col xl:flex-row xl:items-center justify-between shrink-0 mb-6 gap-4">
         <div>
           <h1 className="text-2xl font-extrabold text-[#1b2559] tracking-tight leading-none">
             {pageConfig.title}
           </h1>
-          <p className="text-sm text-gray-500 font-medium mt-1 flex items-center gap-2">
-            Workspace: <span className="font-bold text-[#1b2559]">{user?.name}</span>
-          </p>
-        </div>
-        <div className="flex gap-3">
-          <div className="relative">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Search leads..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9 pr-4 py-2 bg-white border border-gray-200 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-[#5f41b2] shadow-sm w-64"
-            />
+          <div className="flex flex-wrap items-center gap-4 mt-2">
+            <p className="text-sm text-gray-500 font-medium flex items-center gap-2">
+              Workspace: <span className="font-bold text-[#1b2559]">{user?.name}</span>
+            </p>
+            <div className="hidden sm:block w-px h-4 bg-gray-300"></div>
+            
+            {/* CallHippo Active/Inactive Toggle */}
+            <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-full border border-gray-200 shadow-sm">
+              <span className="text-xs font-bold text-gray-600">CallHippo:</span>
+              <button
+                onClick={handleCallHippoToggle}
+                disabled={isCallHippoStatusLoading}
+                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none disabled:opacity-50 cursor-pointer ${isCallHippoAvailable ? 'bg-emerald-500' : 'bg-gray-300'}`}
+              >
+                <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${isCallHippoAvailable ? 'translate-x-4.5' : 'translate-x-1'}`} />
+              </button>
+              <span className={`text-[10px] font-bold uppercase tracking-wider ${isCallHippoAvailable ? 'text-emerald-600' : 'text-gray-500'}`}>
+                {isCallHippoAvailable ? 'Available' : 'Offline'}
+              </span>
+            </div>
           </div>
-          <button className="bg-white border border-gray-200 p-2 rounded-full text-gray-500 hover:text-[#5f41b2] shadow-sm transition">
-            <Filter className="w-5 h-5" />
-          </button>
         </div>
+        <DocGlobalSearch />
       </div>
 
       <div className="flex-1 bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col min-h-0 overflow-hidden">
         <div className="p-5 border-b border-gray-100 flex justify-between items-center shrink-0 bg-gray-50/50">
           <h2 className="text-lg font-bold text-[#1b2559] flex items-center gap-2">
             <PageIcon className="w-5 h-5 text-[#5f41b2]" />
-            Queue ({filteredClients.length})
+            {searchActive ? 'Search Results' : 'Queue'} ({filteredClients.length})
           </h2>
         </div>
-
+        
         <div className="flex-1 overflow-y-auto p-2">
-          {loading ? (
+          {loading || isSearching ? (
             <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-3">
               <Loader2 className="w-8 h-8 animate-spin text-[#5f41b2]" />
-              <p className="text-sm font-semibold">Loading client data...</p>
+              <p className="text-sm font-semibold">{isSearching ? 'Searching database...' : 'Loading client data...'}</p>
             </div>
           ) : filteredClients.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-2">
               <PageIcon className="w-12 h-12 opacity-20" />
-              <p className="text-sm font-semibold">No leads found in this section.</p>
+              <p className="text-sm font-semibold">
+                {searchActive ? `No results found for this tab.` : 'No leads found in this section.'}
+              </p>
             </div>
           ) : (
             <table className="w-full text-left text-sm">
@@ -223,7 +275,6 @@ const DocumentationWorkspace: React.FC = () => {
                       <p className="text-xs">{client.maskedPhone}</p>
                       <p className="text-[11px] text-gray-400">{client.maskedEmail}</p>
                     </td>
-
                     <td className="p-3 text-center">
                       <div className="flex items-center justify-center gap-2">
                         <button
@@ -231,8 +282,8 @@ const DocumentationWorkspace: React.FC = () => {
                           onClick={() => handlePhoneClick(client)}
                           className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors shadow-sm ${
                             client.callInProgress 
-                              ? 'bg-rose-500 text-white animate-pulse' 
-                              : 'bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white'
+                                 ? 'bg-rose-500 text-white animate-pulse' 
+                                 : 'bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white'
                           }`}
                         >
                           <Phone className="w-4 h-4" />
@@ -245,7 +296,6 @@ const DocumentationWorkspace: React.FC = () => {
                         </button>
                       </div>
                     </td>
-
                     <td className="p-3 text-center">
                       <select
                         value={client.status}
@@ -263,7 +313,6 @@ const DocumentationWorkspace: React.FC = () => {
                         <option value="COMPLETED">Completed</option>
                       </select>
                     </td>
-
                     <td className="p-3 text-right">
                       <button
                         onClick={() => navigate(`/leads/detail/${client.clientId}`)}
@@ -286,6 +335,7 @@ const DocumentationWorkspace: React.FC = () => {
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
             <h3 className="text-xl font-bold text-[#1b2559] mb-4">Set Follow Up Details</h3>
             <p className="text-sm text-gray-500 mb-4">Scheduling follow up for {statusModal.client?.name}</p>
+            
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-1">Date & Time</label>
@@ -307,6 +357,7 @@ const DocumentationWorkspace: React.FC = () => {
                 />
               </div>
             </div>
+
             <div className="flex gap-3 mt-6 justify-end">
               <button 
                 onClick={() => setStatusModal({ isOpen: false, client: null, newStatus: '' })}
@@ -315,7 +366,7 @@ const DocumentationWorkspace: React.FC = () => {
                 Cancel
               </button>
               <button 
-                onClick={() => executeStatusUpdate(statusModal.client!.clientId, statusModal.newStatus, updatePayload.remarks, updatePayload.nextFollowUpAt)}
+                onClick={() => executeStatusUpdate(statusModal.client!.assignmentId, statusModal.newStatus, updatePayload.remarks, updatePayload.nextFollowUpAt)}
                 disabled={!updatePayload.nextFollowUpAt}
                 className="px-4 py-2 text-sm font-bold bg-[#5f41b2] text-white rounded-lg hover:bg-[#4d3396] transition disabled:opacity-50"
               >
@@ -346,6 +397,19 @@ const DocumentationWorkspace: React.FC = () => {
               </button>
             </div>
 
+            <div className="mb-6 p-3 bg-blue-50 border border-blue-200 rounded-xl flex items-center justify-between">
+               <div>
+                 <p className="text-sm font-bold text-blue-900">Tax Organizer</p>
+                 <p className="text-xs text-blue-700 mt-0.5">Collect client filing info</p>
+               </div>
+               <button 
+                 onClick={() => setOrganizerModal({ isOpen: true, clientId: callModal.client!.clientId, clientName: callModal.client!.name })}
+                 className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 transition shadow-sm"
+               >
+                 <FileText className="w-3.5 h-3.5" /> Fill Details
+               </button>
+            </div>
+
             <div className="space-y-4 mb-6">
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-1">Comment Type</label>
@@ -373,7 +437,7 @@ const DocumentationWorkspace: React.FC = () => {
                 />
               </div>
             </div>
-
+            
             <button
               onClick={handleEndCallSubmit}
               disabled={endingCall}
@@ -385,6 +449,14 @@ const DocumentationWorkspace: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Tax Organizer Modal rendered when triggered */}
+      <TaxOrganizerModal 
+        isOpen={organizerModal.isOpen} 
+        onClose={() => setOrganizerModal({ isOpen: false, clientId: 0, clientName: '' })} 
+        clientId={organizerModal.clientId}
+        clientName={organizerModal.clientName}
+      />
     </div>
   );
 };

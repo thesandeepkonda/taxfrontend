@@ -1,20 +1,30 @@
 // src/pages/Dashboard/TeamRoster.tsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { Users, Search, Plus, MoreVertical, Mail, Phone } from 'lucide-react';
+import { useDispatch, useSelector } from 'react-redux';
+import { AppDispatch, RootState } from '../../store';
+import { fetchMyTeamUsers } from '../../store/slices/usersSlice';
+import { Users, Search, MoreVertical, Mail, Phone, Loader2 } from 'lucide-react';
 
 const TeamRoster: React.FC = () => {
   const { user } = useAuth();
+  const dispatch = useDispatch<AppDispatch>();
   const [searchQuery, setSearchQuery] = useState('');
   
-  const teamName = user?.team && user.team !== 'NONE' ? user.team : 'General';
+  const teamName = user?.teamName && user.teamName !== 'NONE' ? user.teamName : (user?.departmentName || 'General');
 
-  const mockMembers = [
-    { id: 'EMP-01', name: 'John Doe', role: 'Senior Agent', status: 'Online', email: 'john@metrixtax.com' },
-    { id: 'EMP-02', name: 'Sarah Martins', role: 'Agent', status: 'In Meeting', email: 'sarah@metrixtax.com' },
-    { id: 'EMP-03', name: 'Akin Siyan', role: 'Agent', status: 'Offline', email: 'akin@metrixtax.com' },
-    { id: 'EMP-04', name: 'Priya Patel', role: 'Junior Agent', status: 'Online', email: 'priya@metrixtax.com' },
-  ];
+  const { myTeamUsers, loading } = useSelector((state: RootState) => state.users);
+
+  useEffect(() => {
+    dispatch(fetchMyTeamUsers());
+  }, [dispatch]);
+
+  const filteredMembers = myTeamUsers.filter(member => 
+    (member.firstName?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
+    (member.lastName?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
+    (member.employeeCode?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
+    (member.email?.toLowerCase() || '').includes(searchQuery.toLowerCase())
+  );
 
   return (
     <div className="w-full h-full flex flex-col font-sans overflow-hidden">
@@ -34,9 +44,6 @@ const TeamRoster: React.FC = () => {
               className="pl-9 pr-4 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#5f41b2] shadow-sm w-64"
             />
           </div>
-          <button className="bg-[#5f41b2] hover:bg-[#4d3396] text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors shadow-sm">
-            <Plus className="w-4 h-4" /> Add Member
-          </button>
         </div>
       </div>
 
@@ -53,42 +60,55 @@ const TeamRoster: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {mockMembers.map((member, idx) => (
-                <tr key={idx} className="hover:bg-blue-50/30 transition group">
-                  <td className="p-4 font-semibold text-gray-800 flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-sm font-bold text-blue-700">
-                      {member.name.charAt(0)}
-                    </div>
-                    <div>
-                      <p className="font-bold text-[#1b2559]">{member.name}</p>
-                      <p className="text-[11px] text-gray-500">{member.id}</p>
-                    </div>
-                  </td>
-                  <td className="p-4">
-                    <div className="flex flex-col gap-1 text-xs text-gray-600 font-medium">
-                      <span className="flex items-center gap-1.5"><Mail className="w-3.5 h-3.5 text-gray-400"/> {member.email}</span>
-                    </div>
-                  </td>
-                  <td className="p-4 text-sm font-semibold text-gray-700">{member.role}</td>
-                  <td className="p-4 text-center">
-                    <span className={`inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-full border ${
-                      member.status === 'Online' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 
-                      member.status === 'In Meeting' ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-gray-50 text-gray-600 border-gray-200'
-                    }`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${
-                        member.status === 'Online' ? 'bg-emerald-500' : 
-                        member.status === 'In Meeting' ? 'bg-amber-400' : 'bg-gray-400'
-                      }`}></span>
-                      {member.status}
-                    </span>
-                  </td>
-                  <td className="p-4 text-right">
-                    <button className="p-2 text-gray-400 hover:text-[#5f41b2] transition-colors rounded-lg hover:bg-purple-50">
-                      <MoreVertical className="w-5 h-5" />
-                    </button>
+              {loading ? (
+                <tr>
+                  <td colSpan={5} className="p-8 text-center">
+                    <Loader2 className="w-6 h-6 animate-spin mx-auto text-[#5f41b2]" />
                   </td>
                 </tr>
-              ))}
+              ) : filteredMembers.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="p-8 text-center text-gray-400 font-medium text-sm">
+                    No team members found.
+                  </td>
+                </tr>
+              ) : (
+                filteredMembers.map((member) => (
+                  <tr key={member.id} className="hover:bg-blue-50/30 transition group">
+                    <td className="p-4 font-semibold text-gray-800 flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-sm font-bold text-blue-700">
+                        {member.firstName?.charAt(0) || 'U'}
+                      </div>
+                      <div>
+                        <p className="font-bold text-[#1b2559]">{member.firstName} {member.lastName || ''}</p>
+                        <p className="text-[11px] text-gray-500">{member.employeeCode}</p>
+                      </div>
+                    </td>
+                    <td className="p-4">
+                      <div className="flex flex-col gap-1 text-xs text-gray-600 font-medium">
+                        <span className="flex items-center gap-1.5"><Mail className="w-3.5 h-3.5 text-gray-400"/> {member.email}</span>
+                        {member.phone && <span className="flex items-center gap-1.5 mt-1"><Phone className="w-3.5 h-3.5 text-gray-400"/> {member.phone}</span>}
+                      </div>
+                    </td>
+                    <td className="p-4 text-sm font-semibold text-gray-700">{member.roleName || 'EMPLOYEE'}</td>
+                    <td className="p-4 text-center">
+                      <span className={`inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-full border ${
+                        member.active ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-gray-50 text-gray-600 border-gray-200'
+                      }`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${
+                          member.active ? 'bg-emerald-500' : 'bg-gray-400'
+                        }`}></span>
+                        {member.active ? 'Active' : 'Inactive'}
+                      </span>
+                    </td>
+                    <td className="p-4 text-right">
+                      <button className="p-2 text-gray-400 hover:text-[#5f41b2] transition-colors rounded-lg hover:bg-purple-50">
+                        <MoreVertical className="w-5 h-5" />
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>

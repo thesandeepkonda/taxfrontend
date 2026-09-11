@@ -43,12 +43,24 @@ export interface EndCallRequest {
   recordingUrl?: string;
 }
 
+// NEW: Comment types
+export interface CommentResponse {
+  id: number;
+  clientId: number;
+  employeeId: number;
+  employeeName: string;
+  comment: string;
+  commentType: string;
+  createdAt: string;
+}
+
 interface DocEmployeeState {
   clients: DocClientResponse[];
   currentClient: DocClientResponse | null;
   followUps: DocClientResponse[];
   notLifted: DocClientResponse[];
   calls: DocCallResponse[];
+  comments: CommentResponse[];          // ✅ NEW
   loading: boolean;
   error: string | null;
 }
@@ -59,6 +71,7 @@ const initialState: DocEmployeeState = {
   followUps: [],
   notLifted: [],
   calls: [],
+  comments: [],
   loading: false,
   error: null,
 };
@@ -89,7 +102,7 @@ export const fetchDocClientById = createAsyncThunk(
   }
 );
 
-// Update client (status, remarks, follow-up)
+// Update client (status, remarks, follow-up) - OLD endpoint
 export const updateDocClient = createAsyncThunk(
   'docEmployee/updateClient',
   async ({ assignmentId, data }: { assignmentId: number; data: UpdateDocClientDto }, { rejectWithValue }) => {
@@ -180,6 +193,79 @@ export const endDocCall = createAsyncThunk(
   }
 );
 
+// ============================================================
+// ✅ NEW THUNKS (from backend git pull)
+// ============================================================
+
+// ADD comment (Employee)
+export const addComment = createAsyncThunk(
+  'docEmployee/addComment',
+  async ({ clientId, assignmentId, comment, commentType }: 
+    { clientId: number; assignmentId?: number; comment: string; commentType?: string }, 
+    { rejectWithValue }) => {
+    try {
+      const payload: any = { clientId, comment, commentType: commentType || 'GENERAL' };
+      if (assignmentId) payload.assignmentId = assignmentId;
+      const response = await api.post('/doc/comments', payload);
+      return response.data; // AdminCommentResponseDto
+    } catch (error: any) {
+      return rejectWithValue(error.response?.data?.message || 'Failed to add comment');
+    }
+  }
+);
+
+// UPDATE status (Employee) - NEW separate endpoint
+export const updateStatus = createAsyncThunk(
+  'docEmployee/updateStatus',
+  async ({ assignmentId, status }: { assignmentId: number; status: string }, { rejectWithValue }) => {
+    try {
+      const response = await api.put(`/doc/clients/${assignmentId}/status`, { status });
+      return response.data; // DocClientResponseDto
+    } catch (error: any) {
+      return rejectWithValue(error.response?.data?.message || 'Failed to update status');
+    }
+  }
+);
+
+// GET client comments (Employee)
+export const fetchClientComments = createAsyncThunk(
+  'docEmployee/fetchClientComments',
+  async (clientId: number, { rejectWithValue }) => {
+    try {
+      const response = await api.get(`/doc/clients/${clientId}/comments`);
+      return response.data; // List<CommentResponseDto>
+    } catch (error: any) {
+      return rejectWithValue(error.response?.data?.message || 'Failed to fetch client comments');
+    }
+  }
+);
+
+// EDIT comment (Employee - own comment)
+export const editComment = createAsyncThunk(
+  'docEmployee/editComment',
+  async ({ commentId, comment }: { commentId: number; comment: string }, { rejectWithValue }) => {
+    try {
+      const response = await api.put(`/doc/comments/${commentId}`, { comment });
+      return response.data; // AdminCommentResponseDto
+    } catch (error: any) {
+      return rejectWithValue(error.response?.data?.message || 'Failed to edit comment');
+    }
+  }
+);
+
+// GET clients by status (Employee)
+export const fetchClientsByStatus = createAsyncThunk(
+  'docEmployee/fetchClientsByStatus',
+  async (status: string, { rejectWithValue }) => {
+    try {
+      const response = await api.get(`/doc/clients/status/${status}`);
+      return response.data; // List<DocClientResponseDto>
+    } catch (error: any) {
+      return rejectWithValue(error.response?.data?.message || 'Failed to fetch clients by status');
+    }
+  }
+);
+
 const docEmployeeSlice = createSlice({
   name: 'docEmployee',
   initialState,
@@ -190,6 +276,7 @@ const docEmployeeSlice = createSlice({
       state.followUps = [];
       state.notLifted = [];
       state.calls = [];
+      state.comments = [];
       state.error = null;
     },
     clearError(state) {
@@ -307,6 +394,115 @@ const docEmployeeSlice = createSlice({
         }
       })
       .addCase(endDocCall.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload as string;
+      })
+
+      // ============================================================
+      // ✅ NEW: addComment
+      // ============================================================
+      .addCase(addComment.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(addComment.fulfilled, (state, action: PayloadAction<any>) => {
+        state.loading = false;
+        // action.payload is AdminCommentResponseDto
+        // Add to comments list
+        const newComment: CommentResponse = {
+          id: action.payload.id,
+          clientId: action.payload.clientId,
+          employeeId: action.payload.employeeId,
+          employeeName: action.payload.employeeName,
+          comment: action.payload.comment,
+          commentType: action.payload.commentType,
+          createdAt: action.payload.createdAt,
+        };
+        state.comments.unshift(newComment);
+      })
+      .addCase(addComment.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload as string;
+      })
+
+      // ============================================================
+      // ✅ NEW: updateStatus
+      // ============================================================
+      .addCase(updateStatus.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(updateStatus.fulfilled, (state, action: PayloadAction<DocClientResponse>) => {
+        state.loading = false;
+        const updated = action.payload;
+        // Update in clients list
+        const idx = state.clients.findIndex(c => c.assignmentId === updated.assignmentId);
+        if (idx !== -1) state.clients[idx] = updated;
+        if (state.currentClient?.assignmentId === updated.assignmentId) {
+          state.currentClient = updated;
+        }
+      })
+      .addCase(updateStatus.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload as string;
+      })
+
+      // ============================================================
+      // ✅ NEW: fetchClientComments
+      // ============================================================
+      .addCase(fetchClientComments.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(fetchClientComments.fulfilled, (state, action: PayloadAction<CommentResponse[]>) => {
+        state.loading = false;
+        state.comments = action.payload;
+      })
+      .addCase(fetchClientComments.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload as string;
+      })
+
+      // ============================================================
+      // ✅ NEW: editComment
+      // ============================================================
+      .addCase(editComment.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(editComment.fulfilled, (state, action: PayloadAction<any>) => {
+        state.loading = false;
+        const updated = action.payload;
+        const idx = state.comments.findIndex(c => c.id === updated.id);
+        if (idx !== -1) {
+          state.comments[idx] = {
+            id: updated.id,
+            clientId: updated.clientId,
+            employeeId: updated.employeeId,
+            employeeName: updated.employeeName,
+            comment: updated.comment,
+            commentType: updated.commentType,
+            createdAt: updated.createdAt,
+          };
+        }
+      })
+      .addCase(editComment.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload as string;
+      })
+
+      // ============================================================
+      // ✅ NEW: fetchClientsByStatus
+      // ============================================================
+      .addCase(fetchClientsByStatus.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(fetchClientsByStatus.fulfilled, (state, action: PayloadAction<DocClientResponse[]>) => {
+        state.loading = false;
+        state.clients = action.payload;
+      })
+      .addCase(fetchClientsByStatus.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload as string;
       });

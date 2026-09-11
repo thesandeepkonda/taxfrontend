@@ -1,11 +1,12 @@
 // src/services/api.ts
 import axios, { AxiosInstance, InternalAxiosRequestConfig, AxiosResponse } from 'axios';
-import { isTokenExpired } from '../utils/jwtDecoder';
 import { store } from '../store';
 import { logout, setCredentials } from '../store/slices/authSlice';
+import { retryRequest, defaultShouldRetry } from './retry';
+import { globalCircuitBreaker } from './circuitBreaker'; // ✅ Import circuit breaker
 
-const DEV1_IP = 'http://192.168.0.115:8081/api'; // Your backend IP
-const DEV2_IP = 'http://192.168.0.115:8081/api';
+const DEV1_IP = 'http://192.168.0.185:8080/api'; // Your backend IP
+const DEV2_IP = 'http://192.168.0.96:8080/api';
 
 interface QueuedRequest {
   resolve: (token: string) => void;
@@ -29,14 +30,14 @@ const processQueue = (error: any, token: string | null = null) => {
 const createApiClient = (baseURL: string): AxiosInstance => {
   const instance = axios.create({
     baseURL,
-    timeout: 30000,
+    timeout: 5 * 60 * 1000, // ✅ Updated to 5 minutes (300,000 ms)
     headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json',
     },
   });
 
-  // Request interceptor – attach token from Redux/LocalStorage
+  // Request Interceptor – attach token
   instance.interceptors.request.use(
     (config: InternalAxiosRequestConfig) => {
       const token = store.getState().auth.accessToken || localStorage.getItem('accessToken');
@@ -48,20 +49,40 @@ const createApiClient = (baseURL: string): AxiosInstance => {
     (error) => Promise.reject(error)
   );
 
-  // Response interceptor – handle Token Refresh on 401 / 403
+  // Response Interceptor – refresh token, retry, and circuit breaker
   instance.interceptors.response.use(
-    (response: AxiosResponse) => response,
+    (response: AxiosResponse) => {
+      // ✅ Record success – may close circuit if it was half-open
+      globalCircuitBreaker.recordSuccess();
+      return response;
+    },
     async (error) => {
       const originalRequest = error.config;
 
-      if (error.response) {
-        const { status, data } = error.response;
+      // Prevent infinite loop if refresh endpoint itself fails
+      if (originalRequest.url?.includes('/auth/refresh')) {
+        store.dispatch(logout());
+        localStorage.clear();
+        window.location.href = '/login';
+        return Promise.reject(error);
+      }
 
-        // Check if error is due to expired token (401 or 403) and request hasn't been retried yet
+      // 🛑 CIRCUIT BREAKER CHECK
+      if (!globalCircuitBreaker.canCall()) {
+        // Circuit is OPEN – reject immediately with a special flag
+        const circuitError = new Error('Service temporarily unavailable');
+        (circuitError as any)._isCircuitOpen = true;
+        (circuitError as any)._isFinalFailure = true; // Flag for toast control
+        return Promise.reject(circuitError);
+      }
+
+      // If we have a response, check status
+      if (error.response) {
+        const { status } = error.response;
+
+        // ---------- Token Refresh (401 / 403) ----------
         if ((status === 401 || status === 403) && !originalRequest._retry) {
-          
           if (isRefreshing) {
-            // If another request is already refreshing, queue this request
             return new Promise((resolve, reject) => {
               failedQueue.push({ resolve, reject });
             })
@@ -69,9 +90,7 @@ const createApiClient = (baseURL: string): AxiosInstance => {
                 originalRequest.headers.Authorization = `Bearer ${token}`;
                 return instance(originalRequest);
               })
-              .catch((err) => {
-                return Promise.reject(err);
-              });
+              .catch((err) => Promise.reject(err));
           }
 
           originalRequest._retry = true;
@@ -88,7 +107,6 @@ const createApiClient = (baseURL: string): AxiosInstance => {
           }
 
           try {
-            // Call refresh endpoint using standard axios to avoid infinite loops
             const response = await axios.post(`${baseURL}/auth/refresh`, {
               refreshToken,
             });
@@ -97,7 +115,6 @@ const createApiClient = (baseURL: string): AxiosInstance => {
             const newAccessToken = newAuthData.accessToken;
             const newRefreshToken = newAuthData.refreshToken || refreshToken;
 
-            // Update Redux state and LocalStorage with new tokens
             const currentUser = store.getState().auth.user;
             if (currentUser) {
               store.dispatch(
@@ -111,7 +128,6 @@ const createApiClient = (baseURL: string): AxiosInstance => {
             localStorage.setItem('accessToken', newAccessToken);
             localStorage.setItem('refreshToken', newRefreshToken);
 
-            // Update default headers and retry original request
             instance.defaults.headers.common['Authorization'] = `Bearer ${newAccessToken}`;
             originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
 
@@ -123,7 +139,6 @@ const createApiClient = (baseURL: string): AxiosInstance => {
             isRefreshing = false;
             processQueue(refreshError, null);
 
-            // If refresh token is also expired/invalid, force logout
             store.dispatch(logout());
             localStorage.clear();
             window.location.href = '/login';
@@ -131,8 +146,61 @@ const createApiClient = (baseURL: string): AxiosInstance => {
             return Promise.reject(refreshError);
           }
         }
+
+        // ---------- Retry Logic (5xx, 429, Network Errors) ----------
+        const isRetryable = defaultShouldRetry(error);
+
+        if (isRetryable) {
+          // Initialize retry count if not present
+          if (originalRequest._retryCount === undefined) {
+            originalRequest._retryCount = 0;
+          }
+
+          // ✅ If we've already retried 3 times, record failure and reject
+          if (originalRequest._retryCount >= 3) {
+            console.error(`❌ Request ${originalRequest.url} failed after 3 retries.`);
+            // Record failure – may open circuit
+            globalCircuitBreaker.recordFailure();
+
+            // Add a flag so components can suppress toasts
+            error._isFinalFailure = true;
+            return Promise.reject(error);
+          }
+
+          // Increment retry count
+          originalRequest._retryCount++;
+
+          // Add a flag to indicate this is a retry (suppress toast)
+          error._isRetry = true;
+
+          // Exponential backoff: 1s, 2s, 4s
+          const delay = 1000 * Math.pow(2, originalRequest._retryCount - 1);
+          console.warn(
+            `🔄 Retrying ${originalRequest.url} (attempt ${originalRequest._retryCount}/3) after ${delay}ms...`
+          );
+
+          // Wait before retrying
+          await new Promise((resolve) => setTimeout(resolve, delay));
+
+          // Retry the request
+          return instance(originalRequest);
+        }
+
+        // ---------- Non-retryable errors (e.g., 400, 404) ----------
+        // We don't record failure for client errors
+        error._isFinalFailure = true;
+        return Promise.reject(error);
       }
 
+      // ---------- Network error (no response) ----------
+      // These are retryable, but we might have already retried 3 times.
+      // If we get here after retries, record failure.
+      if (originalRequest._retryCount !== undefined && originalRequest._retryCount >= 3) {
+        globalCircuitBreaker.recordFailure();
+      }
+
+      // Mark as final failure
+      error._isFinalFailure = true;
       return Promise.reject(error);
     }
   );

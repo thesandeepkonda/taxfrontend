@@ -1,17 +1,13 @@
-// src/store/slices/documentSlice.ts
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
 import api from '../../services/api';
 
 export interface DocumentResponse {
   documentId: number;
   documentType: string;
-  documentName: string;
   fileName: string | null;
   contentType: string | null;
   fileSize: number | null;
-  uploaded: boolean;
-  verified: boolean;
-  remarks: string | null;
+  status: string;
   uploadedAt: string | null;
 }
 
@@ -131,9 +127,6 @@ export const submitDocuments = createAsyncThunk(
   }
 );
 
-// Admin view document (view file) – returns blob, so handle separately
-// We'll just have a thunk to get the URL (or directly download)
-
 const documentSlice = createSlice({
   name: 'document',
   initialState,
@@ -204,7 +197,6 @@ const documentSlice = createSlice({
       })
       .addCase(uploadDocument.fulfilled, (state, action: PayloadAction<DocumentResponse>) => {
         state.loading = false;
-        // Update the document in current request or public request
         const doc = action.payload;
         if (state.currentRequest) {
           const idx = state.currentRequest.documents.findIndex(d => d.documentId === doc.documentId);
@@ -226,7 +218,6 @@ const documentSlice = createSlice({
       .addCase(submitDocuments.fulfilled, (state, action: PayloadAction<DocumentRequestResponse>) => {
         state.loading = false;
         state.publicRequest = action.payload;
-        // Also update myRequests if exists
         const idx = state.myRequests.findIndex(r => r.requestId === action.payload.requestId);
         if (idx !== -1) state.myRequests[idx] = action.payload;
         if (state.currentRequest?.requestId === action.payload.requestId) state.currentRequest = action.payload;

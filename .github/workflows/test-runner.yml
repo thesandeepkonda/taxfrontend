@@ -15,16 +15,16 @@ jobs:
 
     steps:
 
-      # --------------------------------
+      
       # 1. Checkout source code
-      # --------------------------------
+      
       - name: Checkout Code
         uses: actions/checkout@v4
 
 
-      # --------------------------------
+      
       # 2. Check Node
-      # --------------------------------
+      
       - name: Check Node and NPM
         shell: powershell
         run: |
@@ -35,27 +35,27 @@ jobs:
           npm -v
 
 
-      # --------------------------------
+      
       # 3. Install dependencies
-      # --------------------------------
+      
       - name: Install Dependencies
         shell: powershell
         run: |
           npm ci
 
 
-      # --------------------------------
+      
       # 4. Build React/Vite
-      # --------------------------------
+      
       - name: Build Frontend
         shell: powershell
         run: |
           npm run build
 
 
-      # --------------------------------
+      
       # 5. Verify build
-      # --------------------------------
+      
       - name: Verify Build
         shell: powershell
         run: |
@@ -65,16 +65,16 @@ jobs:
           if (!(Test-Path $buildPath)) {
               Write-Error "dist folder was not created."
               exit 1
-          }
+          }   
 
           Write-Host "Build successful."
           Write-Host "Build location:"
           Write-Host $buildPath
 
           Get-ChildItem $buildPath
-      # --------------------------------
+      
       # 6. Deploy to IIS with Backup
-      # --------------------------------
+      
       - name: Deploy to IIS
         shell: powershell
         run: |
@@ -102,9 +102,9 @@ jobs:
           Write-Host $backup
 
 
-          # --------------------------------
+          
           # Create destination if needed
-          # --------------------------------
+          
 
           if (!(Test-Path $destination)) {
 
@@ -116,9 +116,9 @@ jobs:
           }
 
 
-          # --------------------------------
+          
           # Create backup directory
-          # --------------------------------
+          
 
           if (!(Test-Path $backupRoot)) {
 
@@ -130,9 +130,9 @@ jobs:
           }
 
 
-          # --------------------------------
+          
           # Backup current deployment
-          # --------------------------------
+          
 
           if ((Get-ChildItem $destination -Force | Measure-Object).Count -gt 0) {
 
@@ -159,10 +159,10 @@ jobs:
           }
 
 
-          # --------------------------------
+          
           # Remove old frontend files
           # Keep web.config
-          # --------------------------------
+          
 
           Write-Host "Removing old frontend files..."
 
@@ -177,9 +177,9 @@ jobs:
             -Force
 
 
-          # --------------------------------
+          
           # Copy new frontend
-          # --------------------------------
+          
 
           Write-Host "Copying new frontend..."
 
@@ -193,9 +193,9 @@ jobs:
           Write-Host "New frontend copied successfully."
 
 
-          # --------------------------------
+          
           # Verify deployment files
-          # --------------------------------
+          
 
           if (!(Test-Path "$destination\index.html")) {
 
@@ -209,9 +209,9 @@ jobs:
           Write-Host "Deployment files verified."
 
 
-          # --------------------------------
+          
           # Health Check
-          # --------------------------------
+          
 
           $healthUrl = "http://localhost:8085/"
 
@@ -243,9 +243,9 @@ jobs:
 
               Write-Error $_
 
-              # --------------------------------
+              
               # Rollback
-              # --------------------------------
+              
 
               if (Test-Path $backup) {
 
@@ -286,9 +286,9 @@ jobs:
           }
 
 
-          # --------------------------------
+          
           # Deployment Successful
-          # --------------------------------
+          
 
           Write-Host "===================================="
           Write-Host "Tax Frontend Deployment Successful"

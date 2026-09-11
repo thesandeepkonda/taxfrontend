@@ -4,26 +4,28 @@ import { useParams } from 'react-router-dom';
 import { useDispatch } from 'react-redux';
 import { AppDispatch } from '../../store';
 import { fetchPublicDocuments } from '../../store/slices/docClientsSlice';
+import { uploadDocument, submitDocuments } from '../../store/slices/documentSlice';
 import logoImg from '../../assets/logo.png';
-import { 
-  UploadCloud, 
-  FileText, 
-  CheckCircle2, 
-  Loader2, 
-  AlertCircle, 
-  ShieldCheck 
+import {
+  UploadCloud,
+  FileText,
+  CheckCircle2,
+  Loader2,
+  AlertCircle,
+  ShieldCheck,
+  Send
 } from 'lucide-react';
 
 const ClientDocumentUpload: React.FC = () => {
   const { token } = useParams<{ token: string }>();
   const dispatch = useDispatch<AppDispatch>();
-
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [requestData, setRequestData] = useState<any>(null);
-  
-  // Track uploading state for individual documents
+
+  // Track uploading & submitting states
   const [uploadingDocId, setUploadingDocId] = useState<number | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     if (token) {
@@ -40,28 +42,42 @@ const ClientDocumentUpload: React.FC = () => {
     }
   }, [dispatch, token]);
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, documentId: number) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, documentId: number) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || !token) return;
 
     setUploadingDocId(documentId);
-
-    // TODO: Replace this setTimeout with your actual POST upload API call
-    // e.g., const formData = new FormData(); formData.append('file', file);
-    // await axios.post(`/api/documents/upload/${documentId}`, formData);
-
-    setTimeout(() => {
-      // Mocking a successful upload by updating local state
+    try {
+      // Trigger the real upload API
+      const result = await dispatch(uploadDocument({ token, documentId, file })).unwrap();
+      // Update local state with the actual API response
       setRequestData((prev: any) => ({
         ...prev,
-        documents: prev.documents.map((doc: any) => 
+        documents: prev.documents.map((doc: any) =>
           doc.documentId === documentId 
-            ? { ...doc, uploaded: true, fileName: file.name } 
+            ? result 
             : doc
         )
       }));
+    } catch (err: any) {
+      alert(err || 'Failed to upload document. Please try again.');
+    } finally {
       setUploadingDocId(null);
-    }, 2000);
+    }
+  };
+
+  const handleSubmitAll = async () => {
+    if (!token) return;
+    setIsSubmitting(true);
+    try {
+      // Trigger the real submit API
+      const result = await dispatch(submitDocuments(token)).unwrap();
+      setRequestData(result);
+    } catch (err: any) {
+      alert(err || 'Failed to submit documents.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   if (loading) {
@@ -86,10 +102,8 @@ const ClientDocumentUpload: React.FC = () => {
     );
   }
 
-  // Check if link is expired based on expiresAt date
   const isExpired = new Date(requestData.expiresAt) < new Date();
-
-  if (isExpired) {
+  if (isExpired && !requestData.submitted) {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
         <div className="bg-white p-8 rounded-2xl shadow-lg max-w-md w-full text-center border-t-4 border-amber-500">
@@ -102,7 +116,8 @@ const ClientDocumentUpload: React.FC = () => {
     );
   }
 
-  const allUploaded = requestData.documents.every((doc: any) => doc.uploaded);
+  // Updated condition check for all documents using `status` instead of boolean `uploaded`
+  const allUploaded = requestData.documents.every((doc: any) => doc.status !== 'PENDING');
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans">
@@ -132,31 +147,33 @@ const ClientDocumentUpload: React.FC = () => {
             <h2 className="text-lg font-bold text-gray-800 mb-4">Required Documents</h2>
             
             <div className="space-y-4">
-              {requestData.documents.map((doc: any) => (
+              {requestData.documents.map((doc: any) => {
+                const isUploaded = doc.status !== 'PENDING';
+                return (
                 <div 
                   key={doc.documentId} 
                   className={`flex flex-col sm:flex-row sm:items-center justify-between p-4 border rounded-xl transition ${
-                    doc.uploaded 
+                    isUploaded 
                       ? 'border-emerald-200 bg-emerald-50/30' 
                       : 'border-gray-200 bg-gray-50 hover:border-[#5f41b2]/50'
                   }`}
                 >
                   <div className="flex items-center gap-3 mb-3 sm:mb-0">
                     <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${
-                      doc.uploaded ? 'bg-emerald-100 text-emerald-600' : 'bg-white border border-gray-200 text-gray-400'
+                      isUploaded ? 'bg-emerald-100 text-emerald-600' : 'bg-white border border-gray-200 text-gray-400'
                     }`}>
-                      {doc.uploaded ? <CheckCircle2 className="w-6 h-6" /> : <FileText className="w-5 h-5" />}
+                      {isUploaded ? <CheckCircle2 className="w-6 h-6" /> : <FileText className="w-5 h-5" />}
                     </div>
                     <div>
-                      <p className="text-sm font-bold text-[#1b2559]">{doc.documentName}</p>
+                      <p className="text-sm font-bold text-[#1b2559]">{doc.documentType}</p>
                       <p className="text-xs font-medium text-gray-500">
-                        {doc.uploaded ? `Uploaded: ${doc.fileName || 'Success'}` : 'Format: PDF, JPG, PNG (Max 5MB)'}
+                        {isUploaded ? `Uploaded: ${doc.fileName || 'Success'}` : 'Format: PDF, JPG, PNG (Max 5MB)'}
                       </p>
                     </div>
                   </div>
 
                   <div className="shrink-0 relative">
-                    {doc.uploaded ? (
+                    {isUploaded ? (
                       <span className="inline-flex items-center gap-1 text-sm font-bold text-emerald-600 bg-emerald-100 px-3 py-1.5 rounded-lg w-full sm:w-auto justify-center">
                         <CheckCircle2 className="w-4 h-4" /> Received
                       </span>
@@ -166,14 +183,14 @@ const ClientDocumentUpload: React.FC = () => {
                           type="file"
                           id={`file-${doc.documentId}`}
                           className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                          disabled={uploadingDocId === doc.documentId}
+                          disabled={uploadingDocId === doc.documentId || requestData.submitted}
                           onChange={(e) => handleFileUpload(e, doc.documentId)}
                         />
                         <label 
                           htmlFor={`file-${doc.documentId}`}
                           className={`inline-flex items-center gap-2 justify-center w-full sm:w-auto px-4 py-2 text-sm font-bold rounded-lg transition border ${
-                            uploadingDocId === doc.documentId
-                              ? 'bg-gray-100 text-gray-500 border-gray-200 cursor-wait'
+                            uploadingDocId === doc.documentId 
+                              ? 'bg-gray-100 text-gray-500 border-gray-200 cursor-wait' 
                               : 'bg-white text-[#5f41b2] border-[#5f41b2] hover:bg-[#5f41b2] hover:text-white cursor-pointer'
                           }`}
                         >
@@ -187,31 +204,44 @@ const ClientDocumentUpload: React.FC = () => {
                     )}
                   </div>
                 </div>
-              ))}
+              )})}
             </div>
 
-            {/* Submission Status */}
+            {/* Submission Status & Action */}
             <div className="mt-8 border-t border-gray-100 pt-6">
-              {allUploaded ? (
+              {requestData.submitted ? (
                 <div className="bg-emerald-600 text-white rounded-xl p-5 text-center shadow-md">
                   <CheckCircle2 className="w-8 h-8 mx-auto mb-2" />
                   <h3 className="text-lg font-bold mb-1">All Documents Submitted!</h3>
-                  <p className="text-emerald-100 text-sm">Thank you. Your tax preparer has been notified and will review your files shortly.</p>
+                  <p className="text-sm text-emerald-100">Your tax preparer has been notified and will review your files shortly.</p>
                 </div>
               ) : (
-                <p className="text-center text-sm text-gray-500">
-                  Please upload all requested documents to complete the submission.
+                <button
+                  onClick={handleSubmitAll}
+                  disabled={!allUploaded || isSubmitting}
+                  className={`w-full flex items-center justify-center gap-2 py-4 rounded-xl text-base font-bold transition shadow-sm ${
+                    allUploaded
+                      ? 'bg-[#5f41b2] hover:bg-[#4d3396] text-white shadow-[#5f41b2]/20'
+                      : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                  }`}
+                >
+                  {isSubmitting ? (
+                    <><Loader2 className="w-5 h-5 animate-spin" /> Submitting...</>
+                  ) : (
+                    <><Send className="w-5 h-5" /> Submit All Documents</>
+                  )}
+                </button>
+              )}
+              
+              {!requestData.submitted && !allUploaded && (
+                <p className="text-center text-xs text-gray-500 mt-3">
+                  You must upload all requested documents before submitting.
                 </p>
               )}
             </div>
-
           </div>
         </div>
       </main>
-      
-      <footer className="text-center py-6 text-xs text-gray-400 font-medium">
-        &copy; {new Date().getFullYear()} Metrix Tax Filing. All rights reserved.
-      </footer>
     </div>
   );
 };

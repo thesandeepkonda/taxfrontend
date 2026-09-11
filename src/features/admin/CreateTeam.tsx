@@ -1,6 +1,7 @@
 // src/features/admin/CreateTeam.tsx
 import React, { useState, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { AppDispatch, RootState } from '../../store';
 import { createTeam, clearError } from '../../store/slices/teamsSlice';
 import { fetchDepartments } from '../../store/slices/departmentsSlice';
@@ -9,6 +10,8 @@ import { Users, Building2, CheckCircle, XCircle, Loader2, ChevronDown } from 'lu
 
 const CreateTeam: React.FC = () => {
   const dispatch = useDispatch<AppDispatch>();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { loading, error } = useSelector((state: RootState) => state.teams);
   const { list: departments, loading: deptLoading } = useSelector((state: RootState) => state.departments);
   const { showToast } = useToast();
@@ -17,6 +20,14 @@ const CreateTeam: React.FC = () => {
   const [departmentId, setDepartmentId] = useState('');
   const [success, setSuccess] = useState(false);
   const [createdTeam, setCreatedTeam] = useState<any>(null);
+
+  // ✅ Read departmentId from URL query param
+  useEffect(() => {
+    const deptIdParam = searchParams.get('departmentId');
+    if (deptIdParam) {
+      setDepartmentId(deptIdParam);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     if (departments.length === 0) dispatch(fetchDepartments());
@@ -55,6 +66,9 @@ const CreateTeam: React.FC = () => {
     }
   };
 
+  // ✅ If departmentId is set from URL, auto-select it
+  const selectedDept = departments.find(d => String(d.id) === departmentId);
+
   if (deptLoading) {
     return (
       <div className="w-full h-64 flex items-center justify-center bg-white rounded-2xl border border-slate-100">
@@ -69,6 +83,14 @@ const CreateTeam: React.FC = () => {
   return (
     <div className="w-full flex flex-col font-sans overflow-x-hidden gap-y-4">
       <div className="bg-white rounded-2xl shadow-xs border border-slate-100 p-4 sm:p-6 lg:p-8">
+        {/* Back button */}
+        <button
+          onClick={() => navigate(-1)}
+          className="mb-4 text-sm font-semibold text-[#5f41b2] hover:underline flex items-center gap-1"
+        >
+          ← Back
+        </button>
+
         {success && (
           <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 sm:p-5 mb-5 animate-in fade-in">
             <div className="flex items-start gap-3">
@@ -126,11 +148,18 @@ const CreateTeam: React.FC = () => {
               >
                 <option value="">Select a department...</option>
                 {departments.map((dept) => (
-                  <option key={dept.id} value={dept.id}>{dept.name} (ID: {dept.id})</option>
+                  <option key={dept.id} value={dept.id}>
+                    {dept.name} (ID: {dept.id})
+                  </option>
                 ))}
               </select>
               <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 sm:w-5 sm:h-5 text-slate-400 pointer-events-none" />
             </div>
+            {selectedDept && (
+              <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1">
+                <CheckCircle className="w-3 h-3" /> Auto-selected from department page
+              </p>
+            )}
           </div>
 
           <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 sm:p-4">

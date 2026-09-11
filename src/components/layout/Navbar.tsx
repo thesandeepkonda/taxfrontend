@@ -1,13 +1,19 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSidebar } from '../../contexts/SidebarContext';
+import { useNotifications } from '../../contexts/NotificationContext';
 import { LogOut, User as UserIcon, Bell, Menu } from 'lucide-react';
 
 const Navbar: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, logout } = useAuth();
   const { toggleMobileMenu } = useSidebar();
+  const { unreadCount } = useNotifications();
+
+  // నోటిఫికేషన్స్ పేజీలో ఉన్నామా లేదా అని చెక్ చేసే లాజిక్
+  const isNotificationPage = location.pathname === '/view/notifications';
 
   const handleLogout = () => {
     if (window.confirm('Are you sure you want to logout?')) {
@@ -16,6 +22,10 @@ const Navbar: React.FC = () => {
       logout();
       navigate('/login');
     }
+  };
+
+  const handleNotificationClick = () => {
+    navigate('/view/notifications');
   };
 
   return (
@@ -51,13 +61,20 @@ const Navbar: React.FC = () => {
       <div className="flex items-center space-x-2 sm:space-x-4 lg:space-x-6">
         <button
           type="button"
-          aria-label="Notifications (3 unread)"
-          className="text-slate-500 hover:text-blue-600 transition-colors relative min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg hover:bg-slate-50"
+          onClick={handleNotificationClick}
+          aria-label={`Notifications (${unreadCount} unread)`}
+          className={`transition-colors relative min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg ${
+            isNotificationPage
+              ? 'text-blue-600 bg-blue-50/80 font-semibold'
+              : 'text-slate-500 hover:text-blue-600 hover:bg-slate-50'
+          }`}
         >
-          <Bell className="w-5 h-5" />
-          <span className="absolute top-2 right-2 bg-rose-500 text-white text-[9px] font-bold w-4 h-4 rounded-full flex items-center justify-center ring-2 ring-white">
-            3
-          </span>
+          <Bell className={`w-5 h-5 cursor-pointer ${isNotificationPage ? 'fill-blue-600/10' : ''}`} />
+          {unreadCount > 0 && (
+            <span className="absolute top-2 right-2 bg-rose-500 text-white text-[9px] font-bold min-w-[16px] h-4 px-1 rounded-full flex items-center justify-center ring-2 ring-white animate-pulse">
+              {unreadCount > 99 ? '99+' : unreadCount}
+            </span>
+          )}
         </button>
 
         <button

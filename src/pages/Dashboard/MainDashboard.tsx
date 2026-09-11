@@ -2,7 +2,6 @@
 import React from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import AdminDashboard from './AdminDashboard';
-import TeamLeadDashboard from './TeamLeadDashboard';
 import EmployeeDashboard from './EmployeeDashboard';
 
 const MainDashboard: React.FC = () => {
@@ -14,16 +13,14 @@ const MainDashboard: React.FC = () => {
   console.log('Department Name:', user.departmentName);
   console.log('Team Name:', user.teamName);
 
-  // ✅ ROLE-BASED NAVIGATION (Highest Priority)
+  // ROLE-BASED NAVIGATION (Highest Priority)
   if (user.role === 'ADMIN') {
     return <AdminDashboard />;
   }
 
-  if (user.role === 'TEAMLEAD') {
-    return <TeamLeadDashboard />;
-  }
-
-  if (user.role === 'EMPLOYEE') {
+  // FIX: Team Leads and Employees will now share the same EmployeeDashboard
+  // This allows Team Leads to access Clock In/Out, Breaks, and specific team queues
+  if (user.role === 'TEAMLEAD' || user.role === 'TEAM_LEAD' || user.role === 'EMPLOYEE') {
     return <EmployeeDashboard />;
   }
 

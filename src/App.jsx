@@ -1,17 +1,23 @@
-// src/App.jsx
+import React from 'react';
 import { BrowserRouter } from 'react-router-dom';
 import AppRoutes from './routes/AppRoutes';
 import { AuthProvider } from './contexts/AuthContext';
-import { ToastProvider } from './contexts/ToastContext'; // ✅ Import ToastProvider
+import { ToastProvider } from './contexts/ToastContext';
+import { NotificationProvider } from './contexts/NotificationContext';
+import { SidebarProvider } from './contexts/SidebarContext';
 
 function App() {
   return (
     <BrowserRouter>
-      <AuthProvider>
-        <ToastProvider> {/* ✅ Wrap with ToastProvider */}
-          <AppRoutes />
-        </ToastProvider>
-      </AuthProvider>
+      <ToastProvider>
+        <AuthProvider>
+          <NotificationProvider>
+            <SidebarProvider>
+              <AppRoutes />
+            </SidebarProvider>
+          </NotificationProvider>
+        </AuthProvider>
+      </ToastProvider>
     </BrowserRouter>
   );
 }

@@ -25,6 +25,11 @@ import employeeClientReducer from './slices/employeeClientSlice';
 import docEmployeeReducer from './slices/docEmployeeSlice';
 import permissionReducer from './slices/permissionSlice';
 import bulkEmployeeReducer from './slices/bulkEmployeeSlice';
+import prepReducer from './slices/prepSlice';
+import adminDocumentsReducer from './slices/adminDocumentsSlice';
+// ✅ NEW: Import events slice
+import eventsReducer from './slices/eventsSlice';
+import notificationReducer from './slices/notificationSlice';
 
 const storage = {
   getItem: (key: string) => Promise.resolve(localStorage.getItem(key)),
@@ -35,7 +40,7 @@ const storage = {
 const persistConfig = {
   key: 'root',
   storage,
-  whitelist: ['auth'], 
+  whitelist: ['auth'],
 };
 
 const rootReducer = combineReducers({
@@ -53,6 +58,11 @@ const rootReducer = combineReducers({
   docEmployee: docEmployeeReducer,
   permissions: permissionReducer,
   bulkEmployee: bulkEmployeeReducer,
+  prep: prepReducer,
+  adminDocuments: adminDocumentsReducer,
+  // ✅ NEW: Register events reducer
+  events: eventsReducer,
+  notifications: notificationReducer,
 });
 
 const persistedReducer = persistReducer(persistConfig, rootReducer);

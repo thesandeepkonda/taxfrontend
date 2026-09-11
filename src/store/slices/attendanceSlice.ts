@@ -15,27 +15,41 @@ export interface AttendanceResponse {
   totalBreakMinutes: number;
   totalIdleMinutes: number;
   breakActive: boolean;
+  // ✅ NEW flags from backend
+  policyViolation: boolean;
+  isLate: boolean;
+  isEarlyCheckout: boolean;
 }
 
-export interface AttendancePolicyBreakRequest {
+// ✅ Team Attendance Response (For Team Lead)
+export interface TeamAttendanceResponse {
+  id: number | null;
+  employeeId: number;
+  employeeCode: string;
+  employeeName: string;
+  attendanceDate: string;
+  shiftStartTime: string | null; // HH:mm
+  shiftEndTime: string | null;   // HH:mm
+  checkIn: string | null;
+  checkOut: string | null;
+  status: 'PRESENT' | 'ABSENT' | 'HALF_DAY' | 'ON_LEAVE' | 'NOT_CHECKED_OUT' | string;
+  currentStatus: string; // "On Shift", "Off Shift", "Upcoming"
+  workingDays: string;
+  totalWorkMinutes: number;
+  totalBreakMinutes: number;
+  totalIdleMinutes: number;
+  breakActive: boolean;
+  policyViolation: boolean;
+  late: boolean;
+  earlyCheckout: boolean;
+}
+
+// ✅ Updated: no breaks list, now has allowedBreakMinutes
+export interface CreateAttendancePolicyRequest {
   name: string;
   startTime: string; // HH:mm
   endTime: string;
-}
-
-export interface CreateAttendancePolicyRequest {
-  name: string;
-  startTime: string;
-  endTime: string;
-  breaks?: AttendancePolicyBreakRequest[];
-}
-
-export interface AttendancePolicyBreakResponse {
-  attendancePolicyBreakId: number;
-  name: string;
-  startTime: string;
-  endTime: string;
-  active: boolean;
+  allowedBreakMinutes: number; // daily allowance
 }
 
 export interface AttendancePolicyResponse {
@@ -43,8 +57,8 @@ export interface AttendancePolicyResponse {
   name: string;
   startTime: string;
   endTime: string;
+  allowedBreakMinutes: number; // NEW
   active: boolean;
-  breaks: AttendancePolicyBreakResponse[];
 }
 
 export interface AttendanceCalendarResponse {
@@ -67,6 +81,8 @@ interface AttendanceState {
   currentPolicy: AttendancePolicyResponse | null;
   list: AttendancePolicyResponse[];
   calendar: AttendanceCalendarResponse[];
+  teamSchedule: TeamAttendanceResponse[]; // NEW
+  teamAttendance: TeamAttendanceResponse[]; // ✅ NEW
   loading: boolean;
   error: string | null;
 }
@@ -76,13 +92,15 @@ const initialState: AttendanceState = {
   currentPolicy: null,
   list: [],
   calendar: [],
+  teamSchedule: [], // NEW
+  teamAttendance: [], // ✅ NEW
   loading: false,
   error: null,
 };
 
 // ---------- Async Thunks ----------
 
-// NEW: Fetch Today's Attendance Details
+// GET /attendance/today
 export const fetchTodayAttendance = createAsyncThunk(
   'attendance/fetchToday',
   async (_, { rejectWithValue }) => {
@@ -205,6 +223,21 @@ export const fetchAttendancePolicies = createAsyncThunk(
   }
 );
 
+// NEW: Get policies by status
+export const fetchAttendancePoliciesByStatus = createAsyncThunk(
+  'attendance/fetchPoliciesByStatus',
+  async (active: boolean, { rejectWithValue }) => {
+    try {
+      const response = await apiDev1.get('/attendance-policies/status', {
+        params: { active },
+      });
+      return response.data;
+    } catch (error: any) {
+      return rejectWithValue(error.response?.data?.message || 'Failed to fetch policies by status');
+    }
+  }
+);
+
 export const createAttendancePolicy = createAsyncThunk(
   'attendance/createPolicy',
   async (policyData: CreateAttendancePolicyRequest, { rejectWithValue }) => {
@@ -241,19 +274,50 @@ export const activateAttendancePolicy = createAsyncThunk(
   }
 );
 
+// NEW: Fetch Team Schedule
+export const fetchTeamSchedule = createAsyncThunk(
+  'attendance/fetchTeamSchedule',
+  async (date: string, { rejectWithValue }) => {
+    try {
+      const response = await apiDev1.get('/attendance/my-team', {
+        params: { date },
+      });
+      return response.data;
+    } catch (error: any) {
+      return rejectWithValue(error.response?.data?.message || 'Failed to fetch team schedule');
+    }
+  }
+);
+
+// ✅ NEW: Fetch My Team Attendance (Team Lead)
+export const fetchMyTeamAttendance = createAsyncThunk(
+  'attendance/fetchMyTeam',
+  async (date: string | null = null, { rejectWithValue }) => {
+    try {
+      const params = date ? { date } : {};
+      const response = await apiDev1.get('/attendance/my-team', { params });
+      return response.data; // List<TeamAttendanceResponse>
+    } catch (error: any) {
+      return rejectWithValue(error.response?.data?.message || 'Failed to fetch team attendance');
+    }
+  }
+);
+
 // ---------- Slice ----------
 const attendanceSlice = createSlice({
   name: 'attendance',
   initialState,
   reducers: {
-    clearAttendance(state) {
+    clearAttendance: (state) => {
       state.currentAttendance = null;
       state.currentPolicy = null;
       state.list = [];
       state.calendar = [];
+      state.teamSchedule = []; // NEW
+      state.teamAttendance = []; // ✅ NEW
       state.error = null;
     },
-    clearError(state) {
+    clearError: (state) => {
       state.error = null;
     },
   },
@@ -272,7 +336,6 @@ const attendanceSlice = createSlice({
         state.loading = false;
         state.error = action.payload as string;
       })
-
       // Check-in
       .addCase(checkIn.pending, (state) => {
         state.loading = true;
@@ -286,7 +349,6 @@ const attendanceSlice = createSlice({
         state.loading = false;
         state.error = action.payload as string;
       })
-
       // Check-out
       .addCase(checkOut.pending, (state) => {
         state.loading = true;
@@ -300,7 +362,6 @@ const attendanceSlice = createSlice({
         state.loading = false;
         state.error = action.payload as string;
       })
-
       // Break Start
       .addCase(startBreak.pending, (state) => {
         state.loading = true;
@@ -314,7 +375,6 @@ const attendanceSlice = createSlice({
         state.loading = false;
         state.error = action.payload as string;
       })
-
       // Break End
       .addCase(endBreak.pending, (state) => {
         state.loading = true;
@@ -328,7 +388,6 @@ const attendanceSlice = createSlice({
         state.loading = false;
         state.error = action.payload as string;
       })
-
       // Idle Start
       .addCase(startIdle.pending, (state) => {
         state.loading = true;
@@ -342,7 +401,6 @@ const attendanceSlice = createSlice({
         state.loading = false;
         state.error = action.payload as string;
       })
-
       // Idle End
       .addCase(endIdle.pending, (state) => {
         state.loading = true;
@@ -356,7 +414,6 @@ const attendanceSlice = createSlice({
         state.loading = false;
         state.error = action.payload as string;
       })
-
       // Fetch Single Policy
       .addCase(fetchAttendancePolicy.pending, (state) => {
         state.loading = true;
@@ -370,15 +427,117 @@ const attendanceSlice = createSlice({
         state.loading = false;
         state.error = action.payload as string;
       })
-
-      // Other actions (Calendar, Policies)
-      .addCase(fetchAttendanceCalendar.fulfilled, (state, action: PayloadAction<AttendanceCalendarResponse[]>) => {
-        state.loading = false;
-        state.calendar = action.payload;
+      // Fetch All Policies
+      .addCase(fetchAttendancePolicies.pending, (state) => {
+        state.loading = true;
+        state.error = null;
       })
       .addCase(fetchAttendancePolicies.fulfilled, (state, action: PayloadAction<AttendancePolicyResponse[]>) => {
         state.loading = false;
         state.list = action.payload;
+      })
+      .addCase(fetchAttendancePolicies.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload as string;
+      })
+      // Fetch Policies by Status (Active/Inactive)
+      .addCase(fetchAttendancePoliciesByStatus.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(fetchAttendancePoliciesByStatus.fulfilled, (state, action: PayloadAction<AttendancePolicyResponse[]>) => {
+        state.loading = false;
+        state.list = action.payload; // Replace list with filtered results
+      })
+      .addCase(fetchAttendancePoliciesByStatus.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload as string;
+      })
+      // Create Policy
+      .addCase(createAttendancePolicy.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(createAttendancePolicy.fulfilled, (state, action: PayloadAction<AttendancePolicyResponse>) => {
+        state.loading = false;
+        state.list.push(action.payload);
+      })
+      .addCase(createAttendancePolicy.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload as string;
+      })
+      // Deactivate
+      .addCase(deactivateAttendancePolicy.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(deactivateAttendancePolicy.fulfilled, (state, action: PayloadAction<number>) => {
+        state.loading = false;
+        const policy = state.list.find(p => p.attendancePolicyId === action.payload);
+        if (policy) policy.active = false;
+        if (state.currentPolicy?.attendancePolicyId === action.payload) {
+          state.currentPolicy.active = false;
+        }
+      })
+      .addCase(deactivateAttendancePolicy.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload as string;
+      })
+      // Activate
+      .addCase(activateAttendancePolicy.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(activateAttendancePolicy.fulfilled, (state, action: PayloadAction<number>) => {
+        state.loading = false;
+        const policy = state.list.find(p => p.attendancePolicyId === action.payload);
+        if (policy) policy.active = true;
+        if (state.currentPolicy?.attendancePolicyId === action.payload) {
+          state.currentPolicy.active = true;
+        }
+      })
+      .addCase(activateAttendancePolicy.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload as string;
+      })
+      // Calendar
+      .addCase(fetchAttendanceCalendar.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(fetchAttendanceCalendar.fulfilled, (state, action: PayloadAction<AttendanceCalendarResponse[]>) => {
+        state.loading = false;
+        state.calendar = action.payload;
+      })
+      .addCase(fetchAttendanceCalendar.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload as string;
+      })
+      // NEW: Fetch Team Schedule
+      .addCase(fetchTeamSchedule.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(fetchTeamSchedule.fulfilled, (state, action: PayloadAction<TeamAttendanceResponse[]>) => {
+        state.loading = false;
+        state.teamSchedule = action.payload;
+      })
+      .addCase(fetchTeamSchedule.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload as string;
+      })
+      // ✅ NEW: My Team Attendance
+      .addCase(fetchMyTeamAttendance.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(fetchMyTeamAttendance.fulfilled, (state, action: PayloadAction<TeamAttendanceResponse[]>) => {
+        state.loading = false;
+        state.teamAttendance = action.payload;
+      })
+      .addCase(fetchMyTeamAttendance.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload as string;
       });
   },
 });
