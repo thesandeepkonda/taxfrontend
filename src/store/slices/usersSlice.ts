@@ -24,19 +24,50 @@ export interface User {
   attendancePolicyId: number | null;
   attendancePolicyName: string | null;
   workMode: 'OFFICE' | 'WORK_FROM_HOME' | 'HYBRID';
+  // ✅ NEW: CallHippo fields
+  callHippoApiToken?: string | null;
+  callHippoFromNumber?: string | null;
+  callHippoAgentId?: string | null;
 }
 
+// ============================================================
+// CREATE EMPLOYEE REQUEST (POST /api/users)
+// ============================================================
+export interface CreateEmployeeRequest {
+  employeeCode: string;          // required, max 30
+  firstName: string;             // required, max 100
+  lastName?: string | null;      // optional, max 100
+  email: string;                 // required, max 150
+  phone: string;                 // required, 10 digits
+  departmentId: number;          // required
+  teamId?: number | null;        // optional
+  roleId?: number | null;        // optional
+  attendancePolicyId: number;    // required
+  workMode: 'OFFICE' | 'WORK_FROM_HOME' | 'HYBRID'; // required
+  // ✅ NEW: CallHippo fields (optional)
+  callHippoApiToken?: string | null;
+  callHippoFromNumber?: string | null;
+  callHippoAgentId?: string | null;
+}
+
+// ============================================================
+// UPDATE EMPLOYEE REQUEST (PUT /api/users/{id})
+// ============================================================
 export interface UpdateEmployeeRequest {
-  firstName: string;
-  lastName?: string | null;
-  email: string;
-  phone: string;
-  departmentId: number;
-  teamId?: number | null;
-  roleId?: number | null;
-  active: boolean;
-  attendancePolicyId: number;
-  workMode: 'OFFICE' | 'WORK_FROM_HOME' | 'HYBRID';
+  firstName: string;             // required, max 100
+  lastName?: string | null;      // optional, max 100
+  email: string;                 // required, max 150
+  phone: string;                 // required, 10 digits
+  departmentId: number;          // required
+  teamId?: number | null;        // optional
+  roleId?: number | null;        // optional
+  active: boolean;               // required
+  attendancePolicyId: number;    // required
+  workMode: 'OFFICE' | 'WORK_FROM_HOME' | 'HYBRID'; // required
+  // ✅ NEW: CallHippo fields (optional)
+  callHippoApiToken?: string | null;
+  callHippoFromNumber?: string | null;
+  callHippoAgentId?: string | null;
 }
 
 // ============================================================
@@ -81,17 +112,17 @@ interface UsersState {
   list: User[];
   currentUser: User | null;
   usersByTeam: Record<number, User[]>;
-  myTeamUsers: User[]; // NEW: To store logged in Team Lead's users
+  myTeamUsers: User[];
   history: ActivityLogResponseDto[];
   teamLeads: TeamLeadResponseDto[];
-  
+
   // Status filter specific state (with infinite scroll support)
   statusFilteredUsers: User[];
   statusTotal: number;
   statusPage: number;
   statusSize: number;
   statusHasMore: boolean;
-  
+
   loading: boolean;
   error: string | null;
 }
@@ -145,8 +176,8 @@ export const fetchUsers = createAsyncThunk(
 // GET /users/status?active={boolean}&page={page}&size={size}
 export const fetchUsersByStatus = createAsyncThunk(
   'users/fetchByStatus',
-  async ({ active, page = 0, size = 20, append = false }: 
-    { active: boolean; page?: number; size?: number; append?: boolean }, 
+  async ({ active, page = 0, size = 20, append = false }:
+    { active: boolean; page?: number; size?: number; append?: boolean },
     { rejectWithValue }) => {
     try {
       const response = await api.get('/users/status', { params: { active, page, size } });
@@ -157,23 +188,38 @@ export const fetchUsersByStatus = createAsyncThunk(
   }
 );
 
-// POST /users
+// ============================================================
+// POST /users  →  Create Employee (with CallHippo fields)
+// ============================================================
 export const createEmployee = createAsyncThunk(
   'users/create',
-  async (userData: {
-    employeeCode: string;
-    firstName: string;
-    lastName?: string | null;
-    email: string;
-    phone: string;
-    departmentId: number;
-    teamId?: number | null;
-    roleId?: number | null;
-    attendancePolicyId: number;
-    workMode: 'OFFICE' | 'WORK_FROM_HOME' | 'HYBRID';
-  }, { rejectWithValue }) => {
+  async (userData: CreateEmployeeRequest, { rejectWithValue }) => {
     try {
-      const response = await api.post('/users', userData);
+      // Build clean payload — omit undefined CallHippo fields
+      const payload: CreateEmployeeRequest = {
+        employeeCode: userData.employeeCode.trim(),
+        firstName: userData.firstName.trim(),
+        lastName: userData.lastName?.trim() || null,
+        email: userData.email.trim().toLowerCase(),
+        phone: userData.phone.trim(),
+        departmentId: Number(userData.departmentId),
+        teamId: userData.teamId != null ? Number(userData.teamId) : null,
+        roleId: userData.roleId != null ? Number(userData.roleId) : null,
+        attendancePolicyId: Number(userData.attendancePolicyId),
+        workMode: userData.workMode,
+      };
+
+      if (userData.callHippoApiToken !== undefined && userData.callHippoApiToken !== null && userData.callHippoApiToken !== '') {
+        payload.callHippoApiToken = userData.callHippoApiToken;
+      }
+      if (userData.callHippoFromNumber !== undefined && userData.callHippoFromNumber !== null && userData.callHippoFromNumber !== '') {
+        payload.callHippoFromNumber = userData.callHippoFromNumber;
+      }
+      if (userData.callHippoAgentId !== undefined && userData.callHippoAgentId !== null && userData.callHippoAgentId !== '') {
+        payload.callHippoAgentId = userData.callHippoAgentId;
+      }
+
+      const response = await api.post('/users', payload);
       return response.data;
     } catch (error: any) {
       return rejectWithValue(error.response?.data?.message || 'Failed to create employee');
@@ -181,12 +227,37 @@ export const createEmployee = createAsyncThunk(
   }
 );
 
-// PUT /users/{id} - Update Employee
+// ============================================================
+// PUT /users/{id}  →  Update Employee (with CallHippo fields)
+// ============================================================
 export const updateEmployee = createAsyncThunk(
   'users/update',
   async ({ id, ...updateData }: { id: number } & UpdateEmployeeRequest, { rejectWithValue }) => {
     try {
-      const response = await api.put(`/users/${id}`, updateData);
+      const payload: UpdateEmployeeRequest = {
+        firstName: updateData.firstName.trim(),
+        lastName: updateData.lastName?.trim() || null,
+        email: updateData.email.trim().toLowerCase(),
+        phone: updateData.phone.trim(),
+        departmentId: Number(updateData.departmentId),
+        teamId: updateData.teamId != null ? Number(updateData.teamId) : null,
+        roleId: updateData.roleId != null ? Number(updateData.roleId) : null,
+        active: Boolean(updateData.active),
+        attendancePolicyId: Number(updateData.attendancePolicyId),
+        workMode: updateData.workMode,
+      };
+
+      if (updateData.callHippoApiToken !== undefined && updateData.callHippoApiToken !== null && updateData.callHippoApiToken !== '') {
+        payload.callHippoApiToken = updateData.callHippoApiToken;
+      }
+      if (updateData.callHippoFromNumber !== undefined && updateData.callHippoFromNumber !== null && updateData.callHippoFromNumber !== '') {
+        payload.callHippoFromNumber = updateData.callHippoFromNumber;
+      }
+      if (updateData.callHippoAgentId !== undefined && updateData.callHippoAgentId !== null && updateData.callHippoAgentId !== '') {
+        payload.callHippoAgentId = updateData.callHippoAgentId;
+      }
+
+      const response = await api.put(`/users/${id}`, payload);
       return response.data;
     } catch (error: any) {
       return rejectWithValue(error.response?.data?.message || 'Failed to update employee');
@@ -216,7 +287,7 @@ export const changePassword = createAsyncThunk(
   async (passwordData: ChangePasswordRequest, { rejectWithValue }) => {
     try {
       await api.put('/users/change-password', passwordData);
-      return; // Success (void)
+      return;
     } catch (error: any) {
       return rejectWithValue(error.response?.data?.message || 'Failed to change password');
     }
@@ -237,7 +308,7 @@ export const fetchUsersByTeam = createAsyncThunk(
   }
 );
 
-// NEW: GET /teams/my-team/users
+// GET /teams/my-team/users
 export const fetchMyTeamUsers = createAsyncThunk(
   'users/fetchMyTeam',
   async (_, { rejectWithValue }) => {
@@ -398,6 +469,11 @@ const usersSlice = createSlice({
       .addCase(createEmployee.fulfilled, (state, action: PayloadAction<User>) => {
         state.loading = false;
         state.list.push(action.payload);
+        // Also push into statusFilteredUsers if user is active (usually admin created are active)
+        if (action.payload.active) {
+          state.statusFilteredUsers = [action.payload, ...state.statusFilteredUsers];
+          state.statusTotal += 1;
+        }
       })
       .addCase(createEmployee.rejected, (state, action) => {
         state.loading = false;
@@ -411,7 +487,7 @@ const usersSlice = createSlice({
       .addCase(updateEmployee.fulfilled, (state, action: PayloadAction<User>) => {
         state.loading = false;
         const updated = action.payload;
-        
+
         const updateInArray = (users: User[]) => {
           const index = users.findIndex(u => u.id === updated.id);
           if (index !== -1) users[index] = updated;
@@ -423,7 +499,7 @@ const usersSlice = createSlice({
           state.currentUser = updated;
         }
         state.statusFilteredUsers = updateInArray(state.statusFilteredUsers);
-        
+
         Object.keys(state.usersByTeam).forEach((teamId) => {
           const teamUsers = state.usersByTeam[Number(teamId)];
           const idx = teamUsers.findIndex(u => u.id === updated.id);
@@ -456,7 +532,7 @@ const usersSlice = createSlice({
           state.currentUser.active = active;
         }
         state.statusFilteredUsers = updateStatusInArray(state.statusFilteredUsers);
-        
+
         Object.keys(state.usersByTeam).forEach((teamId) => {
           const teamUsers = state.usersByTeam[Number(teamId)];
           const user = teamUsers.find(u => u.id === userId);
@@ -478,7 +554,6 @@ const usersSlice = createSlice({
       })
       .addCase(changePassword.fulfilled, (state) => {
         state.loading = false;
-        // Password changed successfully - no state change needed
       })
       .addCase(changePassword.rejected, (state, action) => {
         state.loading = false;
@@ -552,12 +627,13 @@ const usersSlice = createSlice({
   },
 });
 
-export const { 
-  clearUsers, 
-  clearError, 
-  clearHistory, 
-  clearTeamLeads, 
+export const {
+  clearUsers,
+  clearError,
+  clearHistory,
+  clearTeamLeads,
   clearStatusFilteredUsers,
   resetStatusPagination,
 } = usersSlice.actions;
+
 export default usersSlice.reducer;

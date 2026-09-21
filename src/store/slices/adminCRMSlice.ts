@@ -110,6 +110,11 @@ export interface AdminDocumentResponse {
   updatedAt: string | null;
 }
 
+// ✅ NEW: Extended pageable type with optional stage filter
+export interface FetchClientsParams extends Pageable {
+  stage?: string; // 'DOC' | 'PREP' | 'ESTIMATION' | 'PAYMENT' | 'EFILING' | etc.
+}
+
 // ---------- State ----------
 interface AdminCRMState {
   clients: AdminClientResponse[];
@@ -119,9 +124,16 @@ interface AdminCRMState {
   totalCalls: number;
   comments: CommentResponse[];
   report: EmployeeCallReport | null;
-  // NEW: client documents
   clientDocuments: AdminDocumentResponse[];
   totalClientDocuments: number;
+
+  // ✅ Client assignment history
+  clientAssignmentHistory: AssignmentResponse[];
+
+  // ✅ Unassigned clients (from /admin/unassigned)
+  unassignedClients: AdminClientResponse[];
+  unassignedTotal: number;
+
   loading: boolean;
   error: string | null;
 }
@@ -136,17 +148,28 @@ const initialState: AdminCRMState = {
   report: null,
   clientDocuments: [],
   totalClientDocuments: 0,
+
+  clientAssignmentHistory: [],
+
+  unassignedClients: [],
+  unassignedTotal: 0,
+
   loading: false,
   error: null,
 };
 
 // ---------- Async Thunks ----------
-// Get clients (existing)
+
+// ✅ UPDATED: fetchClients — now supports optional `stage` filter
 export const fetchClients = createAsyncThunk(
   'adminCRM/fetchClients',
-  async (pageable: Pageable, { rejectWithValue }) => {
+  async (params: FetchClientsParams, { rejectWithValue }) => {
     try {
-      const response = await api.get('/admin/clients', { params: pageable });
+      const { stage, ...pageable } = params;
+      const queryParams: Record<string, any> = { ...pageable };
+      if (stage) queryParams.stage = stage;
+
+      const response = await api.get('/admin/clients', { params: queryParams });
       return response.data;
     } catch (error: any) {
       return rejectWithValue(error.response?.data?.message || 'Failed to fetch clients');
@@ -154,7 +177,6 @@ export const fetchClients = createAsyncThunk(
   }
 );
 
-// Search clients (existing)
 export const searchClients = createAsyncThunk(
   'adminCRM/searchClients',
   async ({ name, pageable }: { name: string; pageable: Pageable }, { rejectWithValue }) => {
@@ -167,7 +189,6 @@ export const searchClients = createAsyncThunk(
   }
 );
 
-// Get client by ID (existing)
 export const fetchClientById = createAsyncThunk(
   'adminCRM/fetchClientById',
   async (clientId: number, { rejectWithValue }) => {
@@ -180,7 +201,6 @@ export const fetchClientById = createAsyncThunk(
   }
 );
 
-// Bulk assign clients (existing)
 export const bulkAssignClients = createAsyncThunk(
   'adminCRM/bulkAssign',
   async (data: BulkAssignClientRequest, { rejectWithValue }) => {
@@ -193,7 +213,6 @@ export const bulkAssignClients = createAsyncThunk(
   }
 );
 
-// Reassign client (existing)
 export const reassignClient = createAsyncThunk(
   'adminCRM/reassign',
   async ({ assignmentId, data }: { assignmentId: number; data: ReassignClientRequest }, { rejectWithValue }) => {
@@ -206,7 +225,6 @@ export const reassignClient = createAsyncThunk(
   }
 );
 
-// Bulk reassign (existing)
 export const bulkReassignClients = createAsyncThunk(
   'adminCRM/bulkReassign',
   async (data: BulkReassignClientRequest, { rejectWithValue }) => {
@@ -219,7 +237,6 @@ export const bulkReassignClients = createAsyncThunk(
   }
 );
 
-// Get not-lifted (existing)
 export const fetchNotLifted = createAsyncThunk(
   'adminCRM/fetchNotLifted',
   async (_, { rejectWithValue }) => {
@@ -232,7 +249,6 @@ export const fetchNotLifted = createAsyncThunk(
   }
 );
 
-// Get follow-ups (existing)
 export const fetchFollowUps = createAsyncThunk(
   'adminCRM/fetchFollowUps',
   async (_, { rejectWithValue }) => {
@@ -245,7 +261,6 @@ export const fetchFollowUps = createAsyncThunk(
   }
 );
 
-// Get calls (existing)
 export const fetchAdminCalls = createAsyncThunk(
   'adminCRM/fetchCalls',
   async (pageable: Pageable, { rejectWithValue }) => {
@@ -258,7 +273,6 @@ export const fetchAdminCalls = createAsyncThunk(
   }
 );
 
-// Get client calls (existing)
 export const fetchClientCalls = createAsyncThunk(
   'adminCRM/fetchClientCalls',
   async ({ clientId, pageable }: { clientId: number; pageable: Pageable }, { rejectWithValue }) => {
@@ -271,7 +285,6 @@ export const fetchClientCalls = createAsyncThunk(
   }
 );
 
-// Get call recording (existing)
 export const fetchCallRecording = createAsyncThunk(
   'adminCRM/fetchRecording',
   async (callId: number, { rejectWithValue }) => {
@@ -284,7 +297,6 @@ export const fetchCallRecording = createAsyncThunk(
   }
 );
 
-// Get client comments (existing)
 export const fetchClientComments = createAsyncThunk(
   'adminCRM/fetchComments',
   async (clientId: number, { rejectWithValue }) => {
@@ -297,7 +309,6 @@ export const fetchClientComments = createAsyncThunk(
   }
 );
 
-// Delete comment (existing)
 export const deleteComment = createAsyncThunk(
   'adminCRM/deleteComment',
   async (commentId: number, { rejectWithValue }) => {
@@ -310,7 +321,6 @@ export const deleteComment = createAsyncThunk(
   }
 );
 
-// Employee report (existing)
 export const fetchEmployeeReport = createAsyncThunk(
   'adminCRM/fetchReport',
   async ({ employeeId, from, to }: { employeeId: number; from: string; to: string }, { rejectWithValue }) => {
@@ -325,7 +335,6 @@ export const fetchEmployeeReport = createAsyncThunk(
   }
 );
 
-// Upload Excel (existing)
 export const uploadClientExcel = createAsyncThunk(
   'adminCRM/uploadExcel',
   async (file: File, { rejectWithValue }) => {
@@ -342,9 +351,6 @@ export const uploadClientExcel = createAsyncThunk(
   }
 );
 
-// ============================================================
-// ✅ NEW: Fetch clients by employee (already added)
-// ============================================================
 export const fetchClientsByEmployee = createAsyncThunk(
   'adminCRM/fetchClientsByEmployee',
   async ({ employeeId, pageable }: { employeeId: number; pageable: Pageable }, { rejectWithValue }) => {
@@ -357,9 +363,6 @@ export const fetchClientsByEmployee = createAsyncThunk(
   }
 );
 
-// ============================================================
-// ✅ NEW: Fetch client documents by client ID (with pagination)
-// ============================================================
 export const fetchClientDocumentsByClientId = createAsyncThunk(
   'adminCRM/fetchClientDocumentsByClientId',
   async ({ clientId, pageable }: { clientId: number; pageable: Pageable }, { rejectWithValue }) => {
@@ -372,65 +375,55 @@ export const fetchClientDocumentsByClientId = createAsyncThunk(
   }
 );
 
-// ============================================================
-// ✅ NEW: DOCUMENT APPROVE / REJECT (SINGLE & BULK)
-// ============================================================
-
-// Approve a single document
+// ---------- Document Approve / Reject ----------
 export const approveDocument = createAsyncThunk(
   'adminCRM/approveDocument',
   async ({ clientId, documentId }: { clientId: number; documentId: number }, { rejectWithValue }) => {
     try {
       const response = await api.post(`/admin/clients/${clientId}/documents/${documentId}/approve`);
-      return response.data; // AdminDocumentResponse
+      return response.data;
     } catch (error: any) {
       return rejectWithValue(error.response?.data?.message || 'Failed to approve document');
     }
   }
 );
 
-// Reject a single document (requires comment)
 export const rejectDocument = createAsyncThunk(
   'adminCRM/rejectDocument',
   async ({ clientId, documentId, comment }: { clientId: number; documentId: number; comment: string }, { rejectWithValue }) => {
     try {
       const response = await api.post(`/admin/clients/${clientId}/documents/${documentId}/reject`, { comment });
-      return response.data; // AdminDocumentResponse
+      return response.data;
     } catch (error: any) {
       return rejectWithValue(error.response?.data?.message || 'Failed to reject document');
     }
   }
 );
 
-// Approve ALL documents for a client
 export const approveAllDocuments = createAsyncThunk(
   'adminCRM/approveAllDocuments',
   async (clientId: number, { rejectWithValue }) => {
     try {
       const response = await api.post(`/admin/clients/${clientId}/documents/approve`);
-      return { clientId, documents: response.data }; // List<AdminDocumentResponse>
+      return { clientId, documents: response.data };
     } catch (error: any) {
       return rejectWithValue(error.response?.data?.message || 'Failed to approve all documents');
     }
   }
 );
 
-// Reject ALL documents for a client (requires comment)
 export const rejectAllDocuments = createAsyncThunk(
   'adminCRM/rejectAllDocuments',
   async ({ clientId, comment }: { clientId: number; comment: string }, { rejectWithValue }) => {
     try {
       const response = await api.post(`/admin/clients/${clientId}/documents/reject`, { comment });
-      return { clientId, documents: response.data }; // List<AdminDocumentResponse>
+      return { clientId, documents: response.data };
     } catch (error: any) {
       return rejectWithValue(error.response?.data?.message || 'Failed to reject all documents');
     }
   }
 );
 
-// ============================================================
-// Existing: updateClientStatus, editComment, fetchClientsByStatus
-// ============================================================
 export const updateClientStatus = createAsyncThunk(
   'adminCRM/updateClientStatus',
   async ({ clientId, status }: { clientId: number; status: string }, { rejectWithValue }) => {
@@ -468,7 +461,73 @@ export const fetchClientsByStatus = createAsyncThunk(
 );
 
 // ============================================================
-// ✅ Document Viewer API Helper (Direct file stream from Backend)
+// GET /admin/clients/{clientId}/history
+// ============================================================
+export const fetchClientAssignmentHistory = createAsyncThunk(
+  'adminCRM/fetchClientAssignmentHistory',
+  async (clientId: number, { rejectWithValue }) => {
+    try {
+      const response = await api.get(`/admin/clients/${clientId}/history`);
+      return response.data as AssignmentResponse[];
+    } catch (error: any) {
+      return rejectWithValue(
+        error.response?.data?.message || 'Failed to fetch client assignment history'
+      );
+    }
+  }
+);
+
+// ============================================================
+// GET /admin/unassigned (paginated)
+// ============================================================
+export const fetchUnassignedClients = createAsyncThunk<
+  { data: any; page: number; append: boolean },
+  { page?: number; size?: number; append?: boolean },
+  { rejectValue: string }
+>(
+  'adminCRM/fetchUnassignedClients',
+  async (
+    { page = 0, size = 20, append = false },
+    { rejectWithValue }
+  ) => {
+    try {
+      const response = await api.get('/admin/unassigned', {
+        params: { page, size },
+      });
+      return { data: response.data, page, append };
+    } catch (error: any) {
+      return rejectWithValue(
+        error.response?.data?.message || 'Failed to fetch unassigned clients'
+      );
+    }
+  }
+);
+
+// ============================================================
+// ✅ BONUS THUNK: GET /admin?stage={stage} (base /admin endpoint)
+// ============================================================
+export const fetchClientsByStage = createAsyncThunk<
+  any,
+  { stage?: string; page?: number; size?: number; append?: boolean },
+  { rejectValue: string }
+>(
+  'adminCRM/fetchClientsByStage',
+  async ({ stage, page = 0, size = 20 }, { rejectWithValue }) => {
+    try {
+      const params: Record<string, any> = { page, size };
+      if (stage) params.stage = stage;
+      const response = await api.get('/admin', { params });
+      return response.data;
+    } catch (error: any) {
+      return rejectWithValue(
+        error.response?.data?.message || 'Failed to fetch clients by stage'
+      );
+    }
+  }
+);
+
+// ============================================================
+// Document Viewer Helper
 // ============================================================
 export const viewAdminDocument = async (documentId: number) => {
   try {
@@ -501,6 +560,9 @@ const adminCRMSlice = createSlice({
       state.report = null;
       state.clientDocuments = [];
       state.totalClientDocuments = 0;
+      state.clientAssignmentHistory = [];
+      state.unassignedClients = [];
+      state.unassignedTotal = 0;
       state.error = null;
     },
     clearError: (state) => {
@@ -509,6 +571,13 @@ const adminCRMSlice = createSlice({
     clearClientDocuments: (state) => {
       state.clientDocuments = [];
       state.totalClientDocuments = 0;
+    },
+    clearClientAssignmentHistory: (state) => {
+      state.clientAssignmentHistory = [];
+    },
+    clearUnassignedClients: (state) => {
+      state.unassignedClients = [];
+      state.unassignedTotal = 0;
     },
   },
   extraReducers: (builder) => {
@@ -573,7 +642,7 @@ const adminCRMSlice = createSlice({
 
       // ---------- fetchCallRecording ----------
       .addCase(fetchCallRecording.fulfilled, (state, action: PayloadAction<AdminCallResponse>) => {
-        // No state change; just returns the recording data
+        // No state change
       })
 
       // ---------- fetchEmployeeReport ----------
@@ -604,12 +673,8 @@ const adminCRMSlice = createSlice({
       })
 
       // ---------- bulkAssignClients, reassignClient ----------
-      .addCase(bulkAssignClients.fulfilled, (state) => {
-        // Optionally refetch clients after assign
-      })
-      .addCase(reassignClient.fulfilled, (state) => {
-        // Optionally refetch clients
-      })
+      .addCase(bulkAssignClients.fulfilled, (state) => {})
+      .addCase(reassignClient.fulfilled, (state) => {})
 
       // ---------- fetchClientsByEmployee ----------
       .addCase(fetchClientsByEmployee.pending, (state) => {
@@ -700,11 +765,7 @@ const adminCRMSlice = createSlice({
         state.error = action.payload as string;
       })
 
-      // ============================================================
-      // ✅ NEW: Document Approve / Reject Reducers
-      // ============================================================
-
-      // ---------- approveDocument ----------
+      // ---------- Document Approve / Reject ----------
       .addCase(approveDocument.pending, (state) => {
         state.loading = true;
         state.error = null;
@@ -722,7 +783,6 @@ const adminCRMSlice = createSlice({
         state.error = action.payload as string;
       })
 
-      // ---------- rejectDocument ----------
       .addCase(rejectDocument.pending, (state) => {
         state.loading = true;
         state.error = null;
@@ -740,7 +800,6 @@ const adminCRMSlice = createSlice({
         state.error = action.payload as string;
       })
 
-      // ---------- approveAllDocuments ----------
       .addCase(approveAllDocuments.pending, (state) => {
         state.loading = true;
         state.error = null;
@@ -754,7 +813,6 @@ const adminCRMSlice = createSlice({
         state.error = action.payload as string;
       })
 
-      // ---------- rejectAllDocuments ----------
       .addCase(rejectAllDocuments.pending, (state) => {
         state.loading = true;
         state.error = null;
@@ -766,9 +824,76 @@ const adminCRMSlice = createSlice({
       .addCase(rejectAllDocuments.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload as string;
+      })
+
+      // ============================================================
+      // fetchClientAssignmentHistory
+      // ============================================================
+      .addCase(fetchClientAssignmentHistory.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(fetchClientAssignmentHistory.fulfilled, (state, action: PayloadAction<AssignmentResponse[]>) => {
+        state.loading = false;
+        state.clientAssignmentHistory = action.payload;
+      })
+      .addCase(fetchClientAssignmentHistory.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload as string;
+      })
+
+      // ============================================================
+      // fetchUnassignedClients
+      // ============================================================
+      .addCase(fetchUnassignedClients.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(fetchUnassignedClients.fulfilled, (state, action) => {
+        state.loading = false;
+        const pageData = action.payload.data || {};
+        const content: AdminClientResponse[] = pageData.content || [];
+        const totalElements: number = pageData.totalElements || 0;
+
+        if (action.payload.append) {
+          const existingIds = new Set(state.unassignedClients.map((c) => c.clientId));
+          const newUnique = content.filter((c) => !existingIds.has(c.clientId));
+          state.unassignedClients = [...state.unassignedClients, ...newUnique];
+        } else {
+          state.unassignedClients = content;
+        }
+        state.unassignedTotal = totalElements;
+      })
+      .addCase(fetchUnassignedClients.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload as string;
+      })
+
+      // ============================================================
+      // BONUS: fetchClientsByStage
+      // ============================================================
+      .addCase(fetchClientsByStage.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(fetchClientsByStage.fulfilled, (state, action: PayloadAction<any>) => {
+        state.loading = false;
+        state.clients = action.payload?.content || [];
+        state.totalClients = action.payload?.totalElements || 0;
+      })
+      .addCase(fetchClientsByStage.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload as string;
       });
   },
 });
 
-export const { clearAdminCRM, clearError, clearClientDocuments } = adminCRMSlice.actions;
+export const {
+  clearAdminCRM,
+  clearError,
+  clearClientDocuments,
+  clearClientAssignmentHistory,
+  clearUnassignedClients,
+} = adminCRMSlice.actions;
+
 export default adminCRMSlice.reducer;

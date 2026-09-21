@@ -12,7 +12,10 @@ import {
 import { fetchUsers } from '../../store/slices/usersSlice';
 import { fetchDepartments } from '../../store/slices/departmentsSlice';
 import { fetchTeams } from '../../store/slices/teamsSlice';
-import { fetchAttendancePolicies } from '../../store/slices/attendanceSlice';
+import {
+  fetchAttendancePolicies,
+  fetchDailySummary, // ✅ CHANGED
+} from '../../store/slices/attendanceSlice';
 import { fetchPendingLeaveRequests, approveLeave, rejectLeave } from '../../store/slices/leaveSlice';
 import { fetchTeamLeads, TeamLeadResponseDto } from '../../store/slices/usersSlice';
 import { useToast } from '../../contexts/ToastContext';
@@ -35,6 +38,11 @@ import {
   UserPlus,
   CalendarCheck2,
   Crown,
+  UserX,
+  RefreshCw,
+  Mail,
+  Phone,
+  AlertTriangle,
 } from 'lucide-react';
 import Calendar from '../../hooks/Calendar';
 
@@ -48,13 +56,27 @@ const AdminDashboard: React.FC = () => {
   const { list: usersList, loading: usersLoading, teamLeads } = useSelector((state: RootState) => state.users);
   const { list: departmentsList } = useSelector((state: RootState) => state.departments);
   const { list: teamsList } = useSelector((state: RootState) => state.teams);
-  const { list: policiesList } = useSelector((state: RootState) => state.attendance);
+  const {
+    list: policiesList,
+    dailySummary,               // ✅ CHANGED (was absentEmployees)
+    loading: attendanceLoading,
+  } = useSelector((state: RootState) => state.attendance);
   const { pendingLeaves, loading: leavesLoading } = useSelector((state: RootState) => state.leave);
 
   const [isCalendarOpen, setIsCalendarOpen] = useState<boolean>(false);
   const [followUpCount, setFollowUpCount] = useState<number>(0);
   const [notLiftedCount, setNotLiftedCount] = useState<number>(0);
   const [processingLeaveId, setProcessingLeaveId] = useState<number | null>(null);
+
+  // ✅ Today's date in YYYY-MM-DD
+  const getTodayDateString = () => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+  const todayDate = getTodayDateString();
 
   useEffect(() => {
     dispatch(fetchClients({ page: 0, size: 1 }));
@@ -66,6 +88,9 @@ const AdminDashboard: React.FC = () => {
     dispatch(fetchPendingLeaveRequests());
     dispatch(fetchTeamLeads());
 
+    // ✅ Fetch today's ABSENT employees via daily-summary API
+    dispatch(fetchDailySummary({ date: todayDate, status: 'ABSENT' }));
+
     dispatch(fetchFollowUps())
       .unwrap()
       .then((res: any) => setFollowUpCount(res?.length || 0))
@@ -75,7 +100,13 @@ const AdminDashboard: React.FC = () => {
       .unwrap()
       .then((res: any) => setNotLiftedCount(res?.length || 0))
       .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dispatch]);
+
+  // ✅ Manual refresh for absent list
+  const handleRefreshAbsent = () => {
+    dispatch(fetchDailySummary({ date: todayDate, status: 'ABSENT' }));
+  };
 
   const handleApproveLeave = async (leaveId: number) => {
     setProcessingLeaveId(leaveId);
@@ -157,10 +188,13 @@ const AdminDashboard: React.FC = () => {
         </div>
       </header>
 
-      {/* 2. Top Metric Cards with Direct Tab Deep-Links */}
-      <section aria-label="Key Performance Indicators" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 shrink-0">
+      {/* 2. Top Metric Cards */}
+      <section
+        aria-label="Key Performance Indicators"
+        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7 gap-4 shrink-0"
+      >
         
-        {/* Card 1: Total Leads (All Clients) */}
+        {/* Card 1: Total Leads */}
         <div
           onClick={() => navigate('/admin/crm/clients')}
           className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm hover:border-[#5f41b2]/40 transition cursor-pointer group flex flex-col justify-between"
@@ -236,7 +270,7 @@ const AdminDashboard: React.FC = () => {
           </div>
         </div>
 
-        {/* Card 5: Workforce Directory */}
+        {/* Card 5: Total Staff */}
         <div
           onClick={() => navigate('/admin/view-employees')}
           className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm hover:border-indigo-400/40 transition cursor-pointer group flex flex-col justify-between"
@@ -255,7 +289,7 @@ const AdminDashboard: React.FC = () => {
           </div>
         </div>
 
-        {/* Card 6: Departments & Teams */}
+        {/* Card 6: Departments */}
         <div
           onClick={() => navigate('/admin/view-departments')}
           className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm hover:border-purple-400/40 transition cursor-pointer group flex flex-col justify-between"
@@ -270,6 +304,42 @@ const AdminDashboard: React.FC = () => {
             <h3 className="text-2xl font-extrabold text-[#1b2559]">{departmentsList.length}</h3>
             <span className="text-[11px] font-bold text-purple-600 flex items-center gap-0.5 mt-1">
               {teamsList.length} Squads <ArrowUpRight className="w-3 h-3" />
+            </span>
+          </div>
+        </div>
+
+        {/* ✅ Card 7: Absent Today */}
+        <div
+          onClick={() => navigate('/admin/view-attendance?tab=attendance')}
+          className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm hover:border-rose-500/50 transition cursor-pointer group flex flex-col justify-between relative overflow-hidden"
+        >
+          {dailySummary.length > 0 && (
+            <div className="absolute top-0 left-0 right-0 h-1 bg-rose-500" />
+          )}
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Absent Today</span>
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center group-hover:scale-105 transition ${
+              dailySummary.length > 0
+                ? 'bg-rose-50 text-rose-600'
+                : 'bg-slate-50 text-slate-400'
+            }`}>
+              <UserX className="w-4 h-4" />
+            </div>
+          </div>
+          <div>
+            <h3 className={`text-2xl font-extrabold ${dailySummary.length > 0 ? 'text-rose-600' : 'text-[#1b2559]'}`}>
+              {dailySummary.length}
+            </h3>
+            <span className={`text-[11px] font-bold flex items-center gap-0.5 mt-1 ${
+              dailySummary.length > 0 ? 'text-rose-600' : 'text-slate-400'
+            }`}>
+              {dailySummary.length > 0 ? (
+                <>
+                  <AlertTriangle className="w-3 h-3" /> Needs Attention
+                </>
+              ) : (
+                'All Present'
+              )}
             </span>
           </div>
         </div>
@@ -289,7 +359,6 @@ const AdminDashboard: React.FC = () => {
             </div>
             <div className="flex items-center gap-3">
               {leavesLoading && <Loader2 className="w-4 h-4 animate-spin text-[#5f41b2]" />}
-              {/* View All button to navigate to dedicated page */}
               <button
                 onClick={() => navigate('/admin/leave-approvals')}
                 className="text-xs font-bold text-[#5f41b2] hover:underline flex items-center gap-1 cursor-pointer"
@@ -412,6 +481,150 @@ const AdminDashboard: React.FC = () => {
         </div>
       </div>
 
+      {/* ============================================================
+          Absent Employees Today Section
+          ============================================================ */}
+      <div
+        id="absent-employees-section"
+        className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden"
+      >
+        <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-rose-50/40">
+          <div className="flex items-center gap-2">
+            <div className="w-9 h-9 rounded-lg bg-rose-100 text-rose-600 flex items-center justify-center">
+              <UserX className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-[#1b2559] flex items-center gap-2">
+                Absent Employees Today
+                <span className="text-[11px] font-bold bg-rose-100 text-rose-700 px-2 py-0.5 rounded-full">
+                  {dailySummary.length}
+                </span>
+              </h2>
+              <p className="text-[11px] text-slate-400 font-semibold mt-0.5">
+                {new Date(todayDate).toLocaleDateString(undefined, {
+                  weekday: 'long', month: 'short', day: 'numeric', year: 'numeric'
+                })}
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={handleRefreshAbsent}
+            disabled={attendanceLoading}
+            className="flex items-center gap-2 px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 transition shadow-2xs active:scale-95 disabled:opacity-50 cursor-pointer"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${attendanceLoading ? 'animate-spin text-rose-600' : ''}`} />
+            Refresh
+          </button>
+        </div>
+
+        <div className="p-4 overflow-x-auto">
+          {attendanceLoading && dailySummary.length === 0 ? (
+            <div className="py-12 flex items-center justify-center text-slate-400 gap-2">
+              <Loader2 className="w-6 h-6 animate-spin text-rose-600" />
+              <span className="text-sm font-semibold">Loading absent employees...</span>
+            </div>
+          ) : dailySummary.length === 0 ? (
+            <div className="py-12 text-center flex flex-col items-center justify-center">
+              <CheckCircle2 className="w-12 h-12 mb-2 text-emerald-500 opacity-70" />
+              <p className="text-sm font-bold text-emerald-700">All employees are present today!</p>
+              <p className="text-xs text-slate-400 mt-0.5">No absences recorded.</p>
+            </div>
+          ) : (
+            <table className="w-full text-left text-sm min-w-[900px]">
+              <thead className="bg-slate-50/80">
+                <tr className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                  <th className="p-3 rounded-tl-lg">Employee</th>
+                  <th className="p-3">Contact</th>
+                  <th className="p-3">Department</th>
+                  <th className="p-3">Team</th>
+                  <th className="p-3 text-center rounded-tr-lg">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {dailySummary.map((emp) => {
+                  const isOnLeave = emp.attendanceStatus === 'ON_LEAVE';
+                  const isHalfDay = emp.attendanceStatus === 'HALF_DAY';
+                  const isNotCheckedOut = emp.attendanceStatus === 'NOT_CHECKED_OUT';
+
+                  let statusStyle = 'bg-rose-100 text-rose-700 border-rose-200';
+                  let statusLabel = 'Absent';
+                  if (isOnLeave) {
+                    statusStyle = 'bg-purple-100 text-purple-700 border-purple-200';
+                    statusLabel = emp.leaveType ? `On Leave (${emp.leaveType})` : 'On Leave';
+                  } else if (isHalfDay) {
+                    statusStyle = 'bg-amber-100 text-amber-700 border-amber-200';
+                    statusLabel = 'Half Day';
+                  } else if (isNotCheckedOut) {
+                    statusStyle = 'bg-orange-100 text-orange-700 border-orange-200';
+                    statusLabel = 'Not Checked Out';
+                  }
+
+                  return (
+                    <tr key={emp.employeeId} className="hover:bg-rose-50/30 transition group">
+                      <td className="p-3">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-9 h-9 rounded-lg bg-rose-100 text-rose-700 font-bold text-xs flex items-center justify-center shrink-0">
+                            {emp.firstName?.charAt(0) || '?'}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-bold text-[#1b2559] text-sm truncate">
+                              {emp.firstName} {emp.lastName || ''}
+                            </p>
+                            <p className="text-[10px] text-slate-400 font-mono font-semibold">
+                              {emp.employeeCode}
+                            </p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="p-3">
+                        <div className="text-xs space-y-0.5">
+                          <p className="text-slate-600 font-medium flex items-center gap-1.5 truncate max-w-[220px]">
+                            <Mail className="w-3 h-3 text-slate-400 shrink-0" />
+                            {emp.email || '—'}
+                          </p>
+                          <p className="text-slate-500 font-medium flex items-center gap-1.5">
+                            <Phone className="w-3 h-3 text-slate-400 shrink-0" />
+                            {emp.phone || '—'}
+                          </p>
+                        </div>
+                      </td>
+                      <td className="p-3 text-xs font-semibold text-slate-700">
+                        <span className="flex items-center gap-1.5">
+                          <Building2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          {emp.departmentName || '—'}
+                        </span>
+                      </td>
+                      <td className="p-3 text-xs font-medium text-slate-600">
+                        {emp.teamName || <span className="text-slate-400 italic">—</span>}
+                      </td>
+                      <td className="p-3 text-center">
+                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold border uppercase tracking-wide ${statusStyle}`}>
+                          <AlertTriangle className="w-3 h-3" />
+                          {statusLabel}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {/* Footer */}
+        {dailySummary.length > 0 && (
+          <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/50 flex items-center justify-between text-xs">
+            <span className="text-slate-500 font-medium">
+              Total <span className="font-bold text-rose-600">{dailySummary.length}</span> absent today
+            </span>
+            <span className="text-slate-400 font-medium">
+              Auto-synced with attendance records
+            </span>
+          </div>
+        )}
+      </div>
+
       {/* 4. Administration Hub */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Hub 1: CRM & Client Ops */}
@@ -490,9 +703,7 @@ const AdminDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* ============================================================
-          ✅ 5. Team Leads Section (UPDATED: View Team button now navigates to members page)
-          ============================================================ */}
+      {/* 5. Team Leads Section */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
         <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
           <div className="flex items-center gap-2">
@@ -553,7 +764,6 @@ const AdminDashboard: React.FC = () => {
                       </div>
                     </td>
                     <td className="p-3 text-right">
-                      {/* ✅ UPDATED: Navigate directly to team members page with teamId */}
                       <button
                         onClick={() => navigate(`/admin/view-team-members/${lead.teamId}`)}
                         className="text-xs font-bold text-[#5f41b2] hover:underline"

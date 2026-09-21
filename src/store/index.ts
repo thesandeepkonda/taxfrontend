@@ -30,6 +30,8 @@ import adminDocumentsReducer from './slices/adminDocumentsSlice';
 // ✅ NEW: Import events slice
 import eventsReducer from './slices/eventsSlice';
 import notificationReducer from './slices/notificationSlice';
+// ✅ NEW: Import chat slice
+import chatReducer from './slices/chatSlice';
 
 const storage = {
   getItem: (key: string) => Promise.resolve(localStorage.getItem(key)),
@@ -63,6 +65,8 @@ const rootReducer = combineReducers({
   // ✅ NEW: Register events reducer
   events: eventsReducer,
   notifications: notificationReducer,
+  // ✅ NEW: Register chat reducer
+  chat: chatReducer,
 });
 
 const persistedReducer = persistReducer(persistConfig, rootReducer);

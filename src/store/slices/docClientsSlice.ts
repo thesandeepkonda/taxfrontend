@@ -84,6 +84,13 @@ export interface CallHippoRecord {
   toNumber: string | null;
   status: string;
   recordingUrl: string | null;
+  callSid?: string | null;
+}
+
+export interface CallHippoConfig {
+  token: string;
+  email: string;
+  agentId: string;
 }
 
 export interface SearchDocClientsPayload {
@@ -95,9 +102,76 @@ export interface SearchDocClientsPayload {
   size?: number;
 }
 
+export interface FetchCallHistoryParams {
+  page?: number;
+  size?: number;
+  clientId?: number;
+  startDate?: string;
+  endDate?: string;
+  append?: boolean;
+}
+
+export interface TeamLeadEmployeeCallReport {
+  userId: number;
+  employeeCode: string;
+  employeeName: string;
+  totalClients: number;
+  totalCalls: number;
+  answeredCalls: number;
+  notAnsweredCalls: number;
+  failedCalls: number;
+  totalTalkTimeSeconds: number;
+  totalTalkTimeMinutes: number;
+  averageTalkTimeSeconds: number;
+  firstCallTime: string | null;
+  lastCallTime: string | null;
+}
+
+export interface TeamLeadClientCallReport {
+  clientId: number;
+  clientName: string;
+  phone: string;
+  totalCalls: number;
+  answeredCalls: number;
+  notAnsweredCalls: number;
+  failedCalls: number;
+  totalTalkTimeSeconds: number;
+  totalTalkTimeMinutes: number;
+  firstCallTime: string | null;
+  lastCallTime: string | null;
+}
+
+export interface TeamLeadCallDetail {
+  callHistoryId: number;
+  clientId: number;
+  clientName: string;
+  employeeCode: string;
+  employeeName: string;
+  userId: number;
+  agentId: string | null;
+  callSid: string | null;
+  fromNumber: string | null;
+  toNumber: string | null;
+  callType: string | null;
+  status: string | null;
+  duration: number | null;
+  durationSeconds: number | null;
+  billedMinutes: number | null;
+  callCharge: number | null;
+  recordingUrl: string | null;
+  hangupBy: string | null;
+  answeredDevice: string | null;
+  countryName: string | null;
+  callTime: string | null;
+  startTime: string | null;
+  endTime: string | null;
+}
+
 interface DocClientsState {
   list: DocClient[];
-  callHistory: CallResponse[];
+  callHistory: any[]; 
+  callHistoryPage: number;
+  callHistoryHasMore: boolean;
   activeCall: CallResponse | null;
   myRequests: DocumentRequestResponse[];
   publicRequest: DocumentRequestResponse | null;
@@ -107,12 +181,20 @@ interface DocClientsState {
   isSearching: boolean;
   searchActive: boolean;
   clientCallHistory: CallHippoRecord[];
+  clientCallHistoryPage: number;
+  clientCallHistoryHasMore: boolean;
   isClientCallHistoryLoading: boolean;
-  
-  // NEW: CallHippo Availability States
   isCallHippoAvailable: boolean;
   isCallHippoStatusLoading: boolean;
-
+  callHippoConfig: CallHippoConfig | null;
+  isCallHippoConfigLoading: boolean;
+  teamCallReport: TeamLeadEmployeeCallReport[];
+  employeeClientsReport: TeamLeadClientCallReport[];
+  clientCallDetails: TeamLeadCallDetail[];
+  isTeamReportLoading: boolean;
+  isEmployeeClientsLoading: boolean;
+  isClientCallDetailsLoading: boolean;
+  isSettingReminder: boolean;
   loading: boolean;
   error: string | null;
 }
@@ -120,6 +202,8 @@ interface DocClientsState {
 const initialState: DocClientsState = {
   list: [],
   callHistory: [],
+  callHistoryPage: 0,
+  callHistoryHasMore: true,
   activeCall: null,
   myRequests: [],
   publicRequest: null,
@@ -129,9 +213,20 @@ const initialState: DocClientsState = {
   isSearching: false,
   searchActive: false,
   clientCallHistory: [],
+  clientCallHistoryPage: 0,
+  clientCallHistoryHasMore: true,
   isClientCallHistoryLoading: false,
   isCallHippoAvailable: false,
   isCallHippoStatusLoading: false,
+  callHippoConfig: null,
+  isCallHippoConfigLoading: false,
+  teamCallReport: [],
+  employeeClientsReport: [],
+  clientCallDetails: [],
+  isTeamReportLoading: false,
+  isEmployeeClientsLoading: false,
+  isClientCallDetailsLoading: false,
+  isSettingReminder: false,
   loading: false,
   error: null,
 };
@@ -139,6 +234,7 @@ const initialState: DocClientsState = {
 // ========================================================
 // Async Thunks
 // ========================================================
+
 export const searchDocClients = createAsyncThunk(
   'docClients/search',
   async (params: SearchDocClientsPayload, { rejectWithValue }) => {
@@ -147,7 +243,6 @@ export const searchDocClients = createAsyncThunk(
         page: params.page || 0, 
         size: params.size || 50 
       };
-
       if (params.query) {
         if (/^\d+$/.test(params.query)) {
           queryParams.clientId = params.query;
@@ -155,7 +250,6 @@ export const searchDocClients = createAsyncThunk(
           queryParams.name = params.query;
         }
       }
-
       if (params.period && params.period !== 'ALL' && params.period !== 'CUSTOM') {
         queryParams.period = params.period;
       }
@@ -172,34 +266,48 @@ export const searchDocClients = createAsyncThunk(
   }
 );
 
+// FIX: Updated to support pagination parameters natively
 export const fetchClientsByStatuses = createAsyncThunk(
   'docClients/fetchByStatuses',
-  async (statuses: string[], { rejectWithValue }) => {
+  async (payload: { statuses: string[]; page?: number; size?: number; append?: boolean } | string[], { rejectWithValue }) => {
     try {
-      const requests = statuses.map(status => apiDev2.get(`/doc/clients/status/${status}`));
+      let statuses: string[];
+      let page = 0;
+      let size = 20;
+      let append = false;
+
+      if (Array.isArray(payload)) {
+        statuses = payload;
+      } else {
+        statuses = payload.statuses;
+        page = payload.page || 0;
+        size = payload.size || 20;
+        append = payload.append || false;
+      }
+
+      const requests = statuses.map(status => apiDev2.get(`/doc/clients/status/${status}`, { params: { page, size } }));
       const responses = await Promise.all(requests);
       
       let combinedData: DocClient[] = [];
       responses.forEach(response => {
-        if (Array.isArray(response.data)) {
-          combinedData = combinedData.concat(response.data);
-        } else if (response.data && Array.isArray(response.data.content)) {
-          combinedData = combinedData.concat(response.data.content);
-        }
+        const content = Array.isArray(response.data) ? response.data : (response.data?.content || []);
+        combinedData = combinedData.concat(content);
       });
-      return combinedData;
+      return { data: combinedData, append };
     } catch (error: any) {
       return rejectWithValue(error.response?.data?.message || 'Failed to fetch clients by status');
     }
   }
 );
 
+// FIX: Updated to support pagination parameters natively
 export const fetchDocClients = createAsyncThunk(
   'docClients/fetchAll',
-  async (_, { rejectWithValue }) => {
+  async (params: { page?: number; size?: number; append?: boolean } | void, { rejectWithValue }) => {
     try {
-      const response = await apiDev2.get('/doc/clients');
-      return response.data;
+      const queryParams = params ? { page: params.page || 0, size: params.size || 20 } : { page: 0, size: 20 };
+      const response = await apiDev2.get('/doc/clients', { params: queryParams });
+      return { data: response.data, append: params?.append || false };
     } catch (error: any) {
       return rejectWithValue(error.response?.data?.message || 'Failed to fetch documentation clients');
     }
@@ -232,11 +340,18 @@ export const fetchNotLiftedClients = createAsyncThunk(
 
 export const fetchCallHistory = createAsyncThunk(
   'docClients/fetchCallHistory',
-  async (_, { rejectWithValue }) => {
+  async (params: FetchCallHistoryParams | void, { rejectWithValue }) => {
     try {
-      // Reverted back to original correct API endpoint
-      const response = await apiDev2.get('/doc/calls');
-      return response.data;
+      const queryParams: Record<string, any> = {
+        page: params?.page || 0,
+        size: params?.size || 20
+      };
+      if (params?.clientId) queryParams.clientId = params.clientId;
+      if (params?.startDate) queryParams.startDate = params.startDate;
+      if (params?.endDate) queryParams.endDate = params.endDate;
+
+      const response = await apiDev2.get('/callhippo/employee/calls', { params: queryParams });
+      return { data: response.data, append: params?.append };
     } catch (error: any) {
       return rejectWithValue(error.response?.data?.message || 'Failed to fetch call history');
     }
@@ -245,10 +360,10 @@ export const fetchCallHistory = createAsyncThunk(
 
 export const fetchClientCallHippoHistory = createAsyncThunk(
   'docClients/fetchClientCallHippoHistory',
-  async (clientId: number, { rejectWithValue }) => {
+  async ({ clientId, page = 0, size = 20, append = false }: { clientId: number; page?: number; size?: number; append?: boolean }, { rejectWithValue }) => {
     try {
-      const response = await apiDev2.get(`/callhippo/client/${clientId}/history`, { params: { page: 0, size: 20 } });
-      return response.data;
+      const response = await apiDev2.get(`/callhippo/client/${clientId}/history`, { params: { page, size } });
+      return { data: response.data, append };
     } catch (error: any) {
       return rejectWithValue(error.response?.data?.message || 'Failed to fetch client call history');
     }
@@ -267,7 +382,6 @@ export const updateClientStatus = createAsyncThunk(
   }
 );
 
-// NEW: CallHippo Availability Status Toggle
 export const setCallHippoStatus = createAsyncThunk(
   'docClients/setCallHippoStatus',
   async (isAvailable: boolean, { rejectWithValue }) => {
@@ -281,7 +395,18 @@ export const setCallHippoStatus = createAsyncThunk(
   }
 );
 
-// UPDATED: Start Client Call (Uses new CallHippo API)
+export const fetchCallHippoConfig = createAsyncThunk(
+  'docClients/fetchCallHippoConfig',
+  async (_, { rejectWithValue }) => {
+    try {
+      const response = await apiDev2.get('/callhippo/embedded/config');
+      return response.data;
+    } catch (error: any) {
+      return rejectWithValue(error.response?.data?.message || 'Failed to fetch CallHippo config');
+    }
+  }
+);
+
 export const startClientCall = createAsyncThunk(
   'docClients/startCall',
   async (clientId: number, { rejectWithValue }) => {
@@ -302,6 +427,54 @@ export const endClientCall = createAsyncThunk(
       return response.data;
     } catch (error: any) {
       return rejectWithValue(error.response?.data?.message || 'Failed to end call');
+    }
+  }
+);
+
+export const createCallReminder = createAsyncThunk(
+  'docClients/createCallReminder',
+  async ({ clientId, reminderTime }: { clientId: number; reminderTime: number }, { rejectWithValue }) => {
+    try {
+      const response = await apiDev2.post('/callhippo/reminder', { clientId, reminderTime });
+      return response.data;
+    } catch (error: any) {
+      return rejectWithValue(error.response?.data?.message || 'Failed to set call reminder');
+    }
+  }
+);
+
+export const fetchAuthorizedRecording = createAsyncThunk(
+  'docClients/fetchAuthorizedRecording',
+  async ({ callSid, callTime }: { callSid: string; callTime?: string }, { rejectWithValue }) => {
+    try {
+      let startDate = "2026/01/01";
+      let endDate = "2026/12/31"; 
+      if (callTime) {
+        const dateObj = new Date(callTime);
+        const y = dateObj.getFullYear();
+        const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+        const d = String(dateObj.getDate()).padStart(2, '0');
+        startDate = `${y}/${m}/${d}`;
+        endDate = `${y}/${m}/${d}`;
+      }
+
+      const payload = {
+        skip: "0",
+        limit: "20",
+        startDate,
+        endDate,
+        crmUniqueId: "",
+        callSid
+      };
+
+      const response = await apiDev2.post('/callhippo/activityfeed', payload);
+      
+      if (response.data?.success && response.data?.data?.callLogs?.recordingUrl) {
+        return response.data.data.callLogs.recordingUrl;
+      }
+      return rejectWithValue('Recording URL not found in the response.');
+    } catch (error: any) {
+      return rejectWithValue(error.response?.data?.message || 'Failed to fetch recording');
     }
   }
 );
@@ -394,6 +567,54 @@ export const postClientComment = createAsyncThunk(
   }
 );
 
+export const fetchTeamCallReport = createAsyncThunk(
+  'docClients/fetchTeamCallReport',
+  async (params: { startDate?: string; endDate?: string } | void, { rejectWithValue }) => {
+    try {
+      const queryParams: Record<string, any> = {};
+      if (params?.startDate) queryParams.startDate = params.startDate;
+      if (params?.endDate) queryParams.endDate = params.endDate;
+      const response = await apiDev2.get('/callhippo/team-lead/call-report/employees', { params: queryParams });
+      return response.data;
+    } catch (error: any) {
+      return rejectWithValue(error.response?.data?.message || 'Failed to fetch team call report');
+    }
+  }
+);
+
+export const fetchEmployeeClientsReport = createAsyncThunk(
+  'docClients/fetchEmployeeClientsReport',
+  async (params: { employeeId: number; startDate?: string; endDate?: string; page?: number; size?: number }, { rejectWithValue }) => {
+    try {
+      const { employeeId, ...restParams } = params;
+      const queryParams: Record<string, any> = { page: restParams.page || 0, size: restParams.size || 20 };
+      if (restParams.startDate) queryParams.startDate = restParams.startDate;
+      if (restParams.endDate) queryParams.endDate = restParams.endDate;
+      
+      const response = await apiDev2.get(`/callhippo/team-lead/call-report/employees/${employeeId}/clients`, { params: queryParams });
+      return response.data;
+    } catch (error: any) {
+      return rejectWithValue(error.response?.data?.message || 'Failed to fetch employee clients report');
+    }
+  }
+);
+
+export const fetchClientCallDetails = createAsyncThunk(
+  'docClients/fetchClientCallDetails',
+  async (params: { employeeId: number; clientId: number; startDate?: string; endDate?: string; page?: number; size?: number }, { rejectWithValue }) => {
+    try {
+      const { employeeId, clientId, ...restParams } = params;
+      const queryParams: Record<string, any> = { page: restParams.page || 0, size: restParams.size || 20 };
+      if (restParams.startDate) queryParams.startDate = restParams.startDate;
+      if (restParams.endDate) queryParams.endDate = restParams.endDate;
+      const response = await apiDev2.get(`/callhippo/team-lead/call-report/employees/${employeeId}/clients/${clientId}/calls`, { params: queryParams });
+      return response.data;
+    } catch (error: any) {
+      return rejectWithValue(error.response?.data?.message || 'Failed to fetch client call details');
+    }
+  }
+);
+
 const docClientsSlice = createSlice({
   name: 'docClients',
   initialState,
@@ -406,6 +627,16 @@ const docClientsSlice = createSlice({
       state.searchResults = [];
       state.searchTotal = 0;
       state.isSearching = false;
+    },
+    clearTeamReports: (state) => {
+      state.teamCallReport = [];
+      state.employeeClientsReport = [];
+      state.clientCallDetails = [];
+    },
+    clearClientCallHistory: (state) => {
+      state.clientCallHistory = [];
+      state.clientCallHistoryPage = 0;
+      state.clientCallHistoryHasMore = true;
     }
   },
   extraReducers: (builder) => {
@@ -424,51 +655,98 @@ const docClientsSlice = createSlice({
         state.isSearching = false;
         state.error = action.payload as string;
       })
+      
+      // FIX: Proper Append logic for fetchClientsByStatuses
       .addCase(fetchClientsByStatuses.pending, (state) => { state.loading = true; state.error = null; })
       .addCase(fetchClientsByStatuses.fulfilled, (state, action: PayloadAction<any>) => {
         state.loading = false;
-        state.list = Array.isArray(action.payload) ? action.payload : (action.payload?.content || []);
+        const content = action.payload.data || action.payload || [];
+        if (action.payload.append) {
+          const existingIds = new Set(state.list.map(c => c.clientId));
+          const uniqueNew = content.filter((c: any) => !existingIds.has(c.clientId));
+          state.list = [...state.list, ...uniqueNew];
+        } else {
+          state.list = content;
+        }
       })
       .addCase(fetchClientsByStatuses.rejected, (state, action) => { state.loading = false; state.error = action.payload as string; })
+      
+      // FIX: Proper Append logic for fetchDocClients
       .addCase(fetchDocClients.pending, (state) => { state.loading = true; state.error = null; })
       .addCase(fetchDocClients.fulfilled, (state, action: PayloadAction<any>) => {
         state.loading = false;
-        state.list = Array.isArray(action.payload) ? action.payload : (action.payload?.content || []);
+        const pageData = action.payload.data || action.payload;
+        const content = Array.isArray(pageData) ? pageData : (pageData?.content || []);
+        if (action.payload.append) {
+          const existingIds = new Set(state.list.map(c => c.clientId));
+          const uniqueNew = content.filter((c: any) => !existingIds.has(c.clientId));
+          state.list = [...state.list, ...uniqueNew];
+        } else {
+          state.list = content;
+        }
       })
       .addCase(fetchDocClients.rejected, (state, action) => { state.loading = false; state.error = action.payload as string; })
+      
       .addCase(fetchFollowUpClients.pending, (state) => { state.loading = true; state.error = null; })
       .addCase(fetchFollowUpClients.fulfilled, (state, action: PayloadAction<any>) => {
         state.loading = false;
         state.list = Array.isArray(action.payload) ? action.payload : (action.payload?.content || []);
       })
       .addCase(fetchFollowUpClients.rejected, (state, action) => { state.loading = false; state.error = action.payload as string; })
+      
       .addCase(fetchNotLiftedClients.pending, (state) => { state.loading = true; state.error = null; })
       .addCase(fetchNotLiftedClients.fulfilled, (state, action: PayloadAction<any>) => {
         state.loading = false;
         state.list = Array.isArray(action.payload) ? action.payload : (action.payload?.content || []);
       })
       .addCase(fetchNotLiftedClients.rejected, (state, action) => { state.loading = false; state.error = action.payload as string; })
+      
       .addCase(fetchCallHistory.pending, (state) => { state.loading = true; state.error = null; })
       .addCase(fetchCallHistory.fulfilled, (state, action: PayloadAction<any>) => {
         state.loading = false;
-        state.callHistory = Array.isArray(action.payload) ? action.payload : (action.payload?.content || []);
+        const pageData = action.payload.data;
+        const content = pageData?.content || (Array.isArray(pageData) ? pageData : []);
+        const totalElements = pageData?.totalElements || 0;
+        const pageNumber = pageData?.number || 0;
+        const size = pageData?.size || 20;
+        state.callHistoryPage = pageNumber;
+        state.callHistoryHasMore = pageData?.content ? (pageNumber + 1) * size < totalElements : false;
+        if (action.payload.append) {
+          state.callHistory = [...state.callHistory, ...content];
+        } else {
+          state.callHistory = content;
+        }
       })
-      .addCase(fetchCallHistory.rejected, (state, action) => { state.loading = false; state.error = action.payload as string; })
+      .addCase(fetchCallHistory.rejected, (state, action) => { 
+         state.loading = false; 
+         state.error = action.payload as string; 
+         state.callHistoryHasMore = false;
+      })
       
-      // CallHippo Reducers
       .addCase(fetchClientCallHippoHistory.pending, (state) => {
         state.isClientCallHistoryLoading = true;
       })
       .addCase(fetchClientCallHippoHistory.fulfilled, (state, action: PayloadAction<any>) => {
         state.isClientCallHistoryLoading = false;
-        state.clientCallHistory = action.payload?.content || [];
+        const pageData = action.payload.data;
+        const content = pageData?.content || [];
+        const totalElements = pageData?.totalElements || 0;
+        const pageNumber = pageData?.number || 0;
+        const size = pageData?.size || 20;
+        state.clientCallHistoryPage = pageNumber;
+        state.clientCallHistoryHasMore = (pageNumber + 1) * size < totalElements;
+        if (action.payload.append) {
+          state.clientCallHistory = [...state.clientCallHistory, ...content];
+        } else {
+          state.clientCallHistory = content;
+        }
       })
       .addCase(fetchClientCallHippoHistory.rejected, (state, action) => {
         state.isClientCallHistoryLoading = false;
         state.error = action.payload as string;
+        state.clientCallHistoryHasMore = false;
       })
       
-      // NEW: Set CallHippo Status
       .addCase(setCallHippoStatus.pending, (state) => {
         state.isCallHippoStatusLoading = true;
       })
@@ -480,7 +758,18 @@ const docClientsSlice = createSlice({
         state.isCallHippoStatusLoading = false;
         state.error = action.payload as string;
       })
-
+      .addCase(fetchCallHippoConfig.pending, (state) => {
+        state.isCallHippoConfigLoading = true;
+        state.error = null;
+      })
+      .addCase(fetchCallHippoConfig.fulfilled, (state, action: PayloadAction<CallHippoConfig>) => {
+        state.isCallHippoConfigLoading = false;
+        state.callHippoConfig = action.payload;
+      })
+      .addCase(fetchCallHippoConfig.rejected, (state, action) => {
+        state.isCallHippoConfigLoading = false;
+        state.error = action.payload as string;
+      })
       .addCase(updateClientStatus.fulfilled, (state, action: PayloadAction<DocClient>) => {
         const index = state.list.findIndex(c => c.clientId === action.payload.clientId);
         if (index !== -1) {
@@ -492,7 +781,6 @@ const docClientsSlice = createSlice({
         }
       })
       
-      // UPDATED: Handle new CallHippo start call payload
       .addCase(startClientCall.pending, (state) => { state.loading = true; state.error = null; })
       .addCase(startClientCall.fulfilled, (state, action: PayloadAction<any>) => {
         state.loading = false;
@@ -510,7 +798,6 @@ const docClientsSlice = createSlice({
           recordingUrl: null,
           status: action.payload.status || 'INITIATED'
         };
-
         if (client) client.callInProgress = true;
         if (state.searchActive) {
           const sClient = state.searchResults.find(c => c.clientId === clientId);
@@ -521,7 +808,6 @@ const docClientsSlice = createSlice({
         state.loading = false;
         state.error = action.payload as string;
       })
-
       .addCase(endClientCall.fulfilled, (state, action: PayloadAction<CallResponse>) => {
         state.activeCall = null;
         const client = state.list.find(c => c.clientId === action.payload.clientId);
@@ -532,24 +818,39 @@ const docClientsSlice = createSlice({
         }
         state.callHistory.unshift(action.payload);
       })
+      
+      .addCase(createCallReminder.pending, (state) => {
+        state.isSettingReminder = true;
+        state.error = null;
+      })
+      .addCase(createCallReminder.fulfilled, (state) => {
+        state.isSettingReminder = false;
+      })
+      .addCase(createCallReminder.rejected, (state, action) => {
+        state.isSettingReminder = false;
+        state.error = action.payload as string;
+      })
       .addCase(requestClientDocuments.pending, (state) => { state.loading = true; state.error = null; })
       .addCase(requestClientDocuments.fulfilled, (state, action: PayloadAction<DocumentRequestResponse>) => {
         state.loading = false;
         state.myRequests.unshift(action.payload);
       })
       .addCase(requestClientDocuments.rejected, (state, action) => { state.loading = false; state.error = action.payload as string; })
+      
       .addCase(fetchPublicDocuments.pending, (state) => { state.loading = true; state.error = null; })
       .addCase(fetchPublicDocuments.fulfilled, (state, action: PayloadAction<DocumentRequestResponse>) => {
         state.loading = false;
         state.publicRequest = action.payload;
       })
       .addCase(fetchPublicDocuments.rejected, (state, action) => { state.loading = false; state.error = action.payload as string; })
+      
       .addCase(fetchMyDocumentRequests.pending, (state) => { state.loading = true; state.error = null; })
       .addCase(fetchMyDocumentRequests.fulfilled, (state, action: PayloadAction<DocumentRequestResponse[]>) => {
         state.loading = false;
         state.myRequests = action.payload;
       })
       .addCase(fetchMyDocumentRequests.rejected, (state, action) => { state.loading = false; state.error = action.payload as string; })
+      
       .addCase(uploadDocument.pending, (state) => { state.loading = true; state.error = null; })
       .addCase(uploadDocument.fulfilled, (state, action: PayloadAction<DocumentResponse>) => {
         state.loading = false;
@@ -564,23 +865,63 @@ const docClientsSlice = createSlice({
         }
       })
       .addCase(uploadDocument.rejected, (state, action) => { state.loading = false; state.error = action.payload as string; })
+      
       .addCase(submitDocuments.pending, (state) => { state.loading = true; state.error = null; })
       .addCase(submitDocuments.fulfilled, (state, action: PayloadAction<DocumentRequestResponse>) => {
         state.loading = false;
         state.publicRequest = action.payload;
       })
       .addCase(submitDocuments.rejected, (state, action) => { state.loading = false; state.error = action.payload as string; })
+      
       .addCase(fetchClientComments.pending, (state) => { state.loading = true; state.error = null; })
       .addCase(fetchClientComments.fulfilled, (state, action: PayloadAction<CommentResponse[]>) => {
         state.loading = false;
         state.comments = action.payload;
       })
       .addCase(fetchClientComments.rejected, (state, action) => { state.loading = false; state.error = action.payload as string; })
+      
       .addCase(postClientComment.fulfilled, (state, action: PayloadAction<CommentResponse>) => {
         state.comments.unshift(action.payload);
+      })
+      
+      .addCase(fetchTeamCallReport.pending, (state) => {
+        state.isTeamReportLoading = true;
+        state.error = null;
+      })
+      .addCase(fetchTeamCallReport.fulfilled, (state, action: PayloadAction<TeamLeadEmployeeCallReport[]>) => {
+        state.isTeamReportLoading = false;
+        state.teamCallReport = action.payload;
+      })
+      .addCase(fetchTeamCallReport.rejected, (state, action) => {
+        state.isTeamReportLoading = false;
+        state.error = action.payload as string;
+      })
+      .addCase(fetchEmployeeClientsReport.pending, (state) => {
+        state.isEmployeeClientsLoading = true;
+        state.error = null;
+      })
+      .addCase(fetchEmployeeClientsReport.fulfilled, (state, action: PayloadAction<any>) => {
+        state.isEmployeeClientsLoading = false;
+        state.employeeClientsReport = Array.isArray(action.payload) ? action.payload : (action.payload?.content || []);
+      })
+      .addCase(fetchEmployeeClientsReport.rejected, (state, action) => {
+        state.isEmployeeClientsLoading = false;
+        state.error = action.payload as string;
+      })
+      .addCase(fetchClientCallDetails.pending, (state) => {
+        state.isClientCallDetailsLoading = true;
+        state.error = null;
+      })
+      .addCase(fetchClientCallDetails.fulfilled, (state, action: PayloadAction<any>) => {
+        state.isClientCallDetailsLoading = false;
+        state.clientCallDetails = Array.isArray(action.payload) ? action.payload : (action.payload?.content || []);
+      })
+      .addCase(fetchClientCallDetails.rejected, (state, action) => {
+        state.isClientCallDetailsLoading = false;
+        state.error = action.payload as string;
       });
   },
 });
 
-export const { clearDocClientsError, clearDocClientsSearch } = docClientsSlice.actions;
+export const { clearDocClientsError, clearDocClientsSearch, clearTeamReports, clearClientCallHistory } = docClientsSlice.actions;
 export default docClientsSlice.reducer;

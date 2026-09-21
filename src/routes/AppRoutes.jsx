@@ -52,6 +52,7 @@ import ClientDetailsView from '../features/documentation/ClientDetailsView';
 import ClientDocumentsView from '../features/documentation/ClientDocumentsView';
 import DocCallHistory from '../features/documentation/DocCallHistory';
 import ClientDocumentUpload from '../features/documentation/ClientDocumentUpload';
+import DocTeamCallReports from '../features/documentation/DocTeamCallReports';
 
 // Preparation
 import PreparationWorkspace from '../features/preparation/PreparationWorkspace';
@@ -88,7 +89,15 @@ import AdminViewDocsByClientID from '../features/admin/crm/AdminViewDocsByClient
 import AdminViewCommentsByClientID from '../features/admin/crm/AdminViewCommentsByClientID';
 import AdminViewDraftsByClientID from '../features/admin/crm/AdminViewDraftsByClientID';
 import AdminVIewTaxOrganizerByClinetID from '../features/admin/crm/AdminVIewTaxOrganizerByClinetID';
+
 import Notifications from '../pages/Notifications';
+
+// ✅ NEW: Chat Components Imported directly
+import ChatList from '../features/chat/ChatList';
+import ChatWindow from '../features/chat/ChatWindow';
+import AdmivViewApprovedDocsClients from '../features/admin/crm/AdmivViewApprovedDocsClients';
+import AdminViewCallsByClientID from '../features/admin/crm/AdminViewCallsByClientID';   // ✅ NEW
+import AdminViewCallHistoryWithcliendEmpID from '../features/admin/crm/AdminViewCallHistoryWithcliendEmpID';
 
 const AppRoutes = () => {
   return (
@@ -107,6 +116,18 @@ const AppRoutes = () => {
         {/* New Leave Management Route */}
         <Route path="/leaves" element={<LeaveManagement />} />
 
+        {/* ✅ Chat Route (Accessible to all authenticated users) */}
+        <Route path="/chat" element={
+          <div className="w-full h-[calc(100vh-100px)] flex bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="w-80 shrink-0 border-r border-gray-200">
+              <ChatList />
+            </div>
+            <div className="flex-1">
+              <ChatWindow />
+            </div>
+          </div>
+        } />
+
         <Route path="/team-roster" element={<TeamRoster />} />
         <Route path="/team-metrics" element={<TeamMetrics />} />
         <Route path="/approvals" element={<PendingApprovals />} />
@@ -121,6 +142,9 @@ const AppRoutes = () => {
         <Route path="/leads/not-lifted" element={<DocumentationWorkspace />} />
         <Route path="/leads/completed" element={<DocumentationWorkspace />} />
         <Route path="/leads/calls" element={<DocCallHistory />} />
+        
+        {/* NEW: Team Lead Call Reports */}
+        <Route path="/docs/team-calls" element={<DocTeamCallReports />} />
         
         <Route path="/docs/pending" element={<ClientDocumentsView />} />
         <Route path="/docs/verified" element={<ClientDocumentsView />} />
@@ -187,6 +211,7 @@ const AppRoutes = () => {
 
         {/*   NEW: ADMIN - LEAVE APPROVALS */}
         <Route path="/admin/leave-approvals" element={<AdminLeaveApprovals />} />
+
         <Route path="/admin/view-team-members/:teamID" element={<AdminViewTeamMembers />} />
         <Route path="/admin/crm/documents" element={<AdminDocuments />} />
         <Route path="/admin/crm/view-employee-clients/:empID" element={<AdminViewClientsByEmpID />} />
@@ -194,7 +219,12 @@ const AppRoutes = () => {
         <Route path="/admin/crm/view-client-comments/:clientId" element={< AdminViewCommentsByClientID/>} />
         <Route path="/admin/crm/view-drafts/:clientId" element={< AdminViewDraftsByClientID/>} />
         <Route path="/admin/crm/view-tax-organizer/:clientId" element={< AdminVIewTaxOrganizerByClinetID/>} />
+        {/* ✅ NEW: Admin Call History by Client ID */}
+<Route path="/admin/crm/view-call-log/:clientID" element={<AdminViewCallsByClientID />} />
+<Route path="/admin/crm/view-call-log/:clientID/:empID" element={<AdminViewCallHistoryWithcliendEmpID />} />
+        <Route path="/admin/crm/view-docs-approved-clients" element={< AdmivViewApprovedDocsClients/>} />
         <Route path="/view/notifications" element={< Notifications/>} />
+
       </Route>
       
       <Route path="*" element={<NotFound />} />

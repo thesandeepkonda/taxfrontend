@@ -8,7 +8,9 @@ import {
     fetchDocClients,
     fetchMyDocumentRequests,
     fetchClientComments,
-    fetchClientCallHippoHistory
+    fetchClientCallHippoHistory,
+    fetchAuthorizedRecording,
+    clearClientCallHistory
   } from '../../store/slices/docClientsSlice';
 import TaxOrganizerModal from './TaxOrganizerModal';
 import {
@@ -31,9 +33,13 @@ import {
   FolderClock,
   PhoneCall,
   PhoneOutgoing,
+  PhoneIncoming,
   PhoneOff,
   Loader2,
-  XCircle
+  XCircle,
+  Globe,
+  PlayCircle,
+  Info
 } from 'lucide-react';
 
 const ClientDetailsView: React.FC = () => {
@@ -42,7 +48,17 @@ const ClientDetailsView: React.FC = () => {
   const dispatch = useDispatch<AppDispatch>();
 
   // Fetch clients, requests, comments and call history from Redux store
-  const { list: clients, myRequests, comments, loading, clientCallHistory, isClientCallHistoryLoading } = useSelector((state: RootState) => state.docClients);
+  const { 
+    list: clients, 
+    myRequests, 
+    comments, 
+    loading, 
+    clientCallHistory, 
+    isClientCallHistoryLoading,
+    clientCallHistoryPage,
+    clientCallHistoryHasMore 
+  } = useSelector((state: RootState) => state.docClients);
+
   const clientData = clients.find(c => String(c.clientId) === id);
 
   // Get the active document request for this specific client from Redux
@@ -56,9 +72,12 @@ const ClientDetailsView: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // NEW: Tax Organizer & Call History Modal States
+  // NEW: Tax Organizer, Call History & Play Recording States
   const [organizerModalOpen, setOrganizerModalOpen] = useState(false);
   const [isCallHistoryModalOpen, setIsCallHistoryModalOpen] = useState(false);
+  const [fetchingRecordId, setFetchingRecordId] = useState<number | null>(null);
+  const [playingRecordId, setPlayingRecordId] = useState<number | null>(null);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
 
   // Fetch clients, document requests, and comments on mount
   useEffect(() => {
@@ -81,11 +100,50 @@ const ClientDetailsView: React.FC = () => {
     }
   };
 
+  // Open Call History Modal and reset previous state
   const handleOpenCallHistory = () => {
     if (id) {
-      dispatch(fetchClientCallHippoHistory(Number(id)));
+      dispatch(clearClientCallHistory());
+      dispatch(fetchClientCallHippoHistory({ clientId: Number(id), page: 0, size: 20, append: false }));
       setIsCallHistoryModalOpen(true);
     }
+  };
+
+  // Infinite Scroll Handler for Call Logs
+  const handleCallLogScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const target = e.currentTarget;
+    if (target.scrollHeight - target.scrollTop - target.clientHeight < 50) {
+      if (!isClientCallHistoryLoading && clientCallHistoryHasMore && id) {
+        dispatch(fetchClientCallHippoHistory({ 
+          clientId: Number(id), 
+          page: clientCallHistoryPage + 1, 
+          size: 20, 
+          append: true 
+        }));
+      }
+    }
+  };
+
+  // Format Date for Call Logs Matching UI Requirements
+  const formatLogDate = (dateStr: string) => {
+    if (!dateStr) return '-';
+    const date = new Date(dateStr);
+    const day = date.getDate().toString().padStart(2, '0');
+    const month = date.toLocaleString('default', { month: 'short' });
+    let hours = date.getHours();
+    const minutes = date.getMinutes().toString().padStart(2, '0');
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12;
+    hours = hours ? hours : 12; 
+    const strTime = hours.toString().padStart(2, '0') + ':' + minutes + ' ' + ampm;
+    return `${day} ${month} ${strTime}`;
+  };
+
+  // Mask Phone Number Logic
+  const maskPhoneNumber = (phone: string | null | undefined) => {
+    if (!phone) return '-';
+    if (phone.length <= 5) return phone;
+    return phone.substring(0, 5) + '*'.repeat(phone.length - 5);
   };
 
   // Custom Document Request Handlers
@@ -113,7 +171,6 @@ const ClientDetailsView: React.FC = () => {
     try {
       setIsGenerating(true);
       const clientIdNum = !isNaN(Number(id)) ? Number(id) : 1; 
-
       const payload = {
         clientId: clientIdNum,
         expiresAt: new Date(expiresAt).toISOString(),
@@ -147,15 +204,18 @@ const ClientDetailsView: React.FC = () => {
   const handleWhatsAppShare = async (shareUrl: string) => {
     if (shareUrl && clientData) {
       const fullUrl = `${window.location.origin}${shareUrl}`;
-      const text = `Hello ${clientData.name}, please upload your requested documents securely using this link: ${fullUrl}`;
+      const text = encodeURIComponent(`Hello ${clientData.name}, please upload your requested documents securely using this link: ${fullUrl}`);
       
-      try {
-        // TODO: Replace with Admin's Internal WhatsApp API call
-        console.log("Internal API call triggered:", text);
-        alert('WhatsApp message sent successfully via internal API!');
-      } catch (error) {
-        alert('Failed to send WhatsApp message.');
+      const phoneNumber = (clientData as any).phone || clientData.maskedPhone;
+      
+      // If we don't have the unmasked number, fallback to generic WhatsApp share
+      if (!phoneNumber || phoneNumber.includes('*')) {
+        window.open(`https://wa.me/?text=${text}`, '_blank');
+        return;
       }
+      
+      const cleanPhone = phoneNumber.replace(/[^\d+]/g, '').replace(/\+/g, '');
+      window.open(`https://wa.me/${cleanPhone}?text=${text}`, '_blank');
     }
   };
 
@@ -169,6 +229,46 @@ const ClientDetailsView: React.FC = () => {
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return 'N/A';
     return new Date(dateStr).toLocaleString();
+  };
+
+  // NEW: Secure Recording Fetch & Inline Play Logic
+  const handlePlayRecording = async (call: any) => {
+    const recordId = call.id || call.callHistoryId;
+    
+    // Prevent double fetch if already playing
+    if (playingRecordId === recordId) return;
+
+    // Reset previous audio
+    setAudioUrl(null);
+    setPlayingRecordId(null);
+
+    if (!call.callSid) {
+       // Fallback to direct URL if callSid is somehow missing but URL exists
+       if (call.recordingUrl) {
+         setAudioUrl(call.recordingUrl);
+         setPlayingRecordId(recordId);
+       }
+       return;
+    }
+    
+    setFetchingRecordId(recordId);
+    try {
+       const mp3Url = await dispatch(fetchAuthorizedRecording({ 
+          callSid: call.callSid, 
+          callTime: call.callTime 
+       })).unwrap();
+       
+       if (mp3Url) {
+          setAudioUrl(mp3Url);
+          setPlayingRecordId(recordId);
+       } else {
+          alert("Recording is currently processing or unavailable.");
+       }
+    } catch (err: any) {
+       alert(err || "Failed to fetch secure recording link. Please try again.");
+    } finally {
+       setFetchingRecordId(null);
+    }
   };
 
   if (loading && !clientData) {
@@ -245,6 +345,7 @@ const ClientDetailsView: React.FC = () => {
                 </p>
               </div>
             </div>
+
             <div className="grid grid-cols-2 gap-4">
               <div className="bg-blue-50 p-3 rounded-xl border border-blue-100">
                 <label className="block text-[10px] font-bold text-blue-400 uppercase tracking-wider mb-1 flex items-center gap-1">
@@ -271,6 +372,7 @@ const ClientDetailsView: React.FC = () => {
               <MessageCircle className="w-5 h-5 text-[#5f41b2]" />
               Client Comments & Remarks
             </h2>
+
             <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2">
               {comments && comments.length > 0 ? (
                 comments.map((c) => (
@@ -361,7 +463,7 @@ const ClientDetailsView: React.FC = () => {
                      <input 
                        type="text" 
                        readOnly 
-                       value={`${window.location.origin}${clientRequest.shareUrl}`} 
+                       value={`${window.location.origin}${clientRequest.shareUrl}`}
                        className="flex-1 bg-white border border-gray-200 rounded-lg px-3 py-2 text-xs text-gray-600 outline-none" 
                      />
                      <button 
@@ -382,7 +484,7 @@ const ClientDetailsView: React.FC = () => {
                    </div>
                 </div>
 
-                {/* Document List (Viewing disabled for employees) */}
+                {/* Document List */}
                 <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2 pt-2">Document Checklist</h4>
                 <div className="space-y-2">
                   {clientRequest.documents.map((doc: any) => {
@@ -414,7 +516,7 @@ const ClientDetailsView: React.FC = () => {
         </div>
       </div>
 
-      {/* --- Request Documents Modal --- */}
+      {/* Request Documents Modal */}
       {isRequestModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col">
@@ -497,65 +599,151 @@ const ClientDetailsView: React.FC = () => {
         </div>
       )}
 
-      {/* --- CallHippo Client History Modal --- */}
+      {/* --- CallHippo Client History Modal (MATCHED SCREENSHOT UI) --- */}
       {isCallHistoryModalOpen && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
-           <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl flex flex-col overflow-hidden zoom-in-95 max-h-[85vh]">
-              <div className="p-5 border-b border-gray-100 flex justify-between items-center bg-gray-50/50 shrink-0">
-                 <h3 className="text-lg font-bold text-[#1b2559] flex items-center gap-2">
-                   <PhoneOutgoing className="w-5 h-5 text-blue-500" />
-                   Call Log - {clientData.name}
-                 </h3>
-                 <button onClick={() => setIsCallHistoryModalOpen(false)} className="text-gray-400 hover:text-gray-600 transition p-1 rounded-lg hover:bg-gray-100">
+           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl flex flex-col overflow-hidden zoom-in-95 max-h-[85vh]">
+             
+             {/* Modal Header */}
+              <div className="p-6 border-b border-gray-100 flex justify-between items-start bg-white shrink-0">
+                 <div>
+                   <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Call Logs</h2>
+                   <p className="text-xs text-gray-400 font-medium mt-1">View all the calls made or received for this client.</p>
+                 </div>
+                 <button onClick={() => setIsCallHistoryModalOpen(false)} className="w-8 h-8 rounded-full border border-gray-200 text-gray-400 flex items-center justify-center hover:bg-gray-100 transition shadow-sm" title="Close">
                    <X className="w-5 h-5" />
                  </button>
               </div>
-              <div className="flex-1 overflow-y-auto p-0">
-                 {isClientCallHistoryLoading ? (
-                    <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-3">
-                       <Loader2 className="w-8 h-8 animate-spin text-[#5f41b2]" />
-                       <p className="text-sm font-semibold">Fetching call logs...</p>
+
+              {/* Table Container with Infinite Scroll */}
+              <div className="flex-1 overflow-y-auto p-0 bg-white" onScroll={handleCallLogScroll}>
+                 <table className="w-full text-left text-sm whitespace-nowrap">
+                   <thead className="bg-gray-50/80 sticky top-0 z-10 border-b border-gray-200 shadow-sm">
+                      <tr className="text-xs font-bold text-gray-800 tracking-wide">
+                         <th className="p-4 px-6 w-12 text-center"></th>
+                         <th className="p-4">Number Name</th>
+                         <th className="p-4">User</th>
+                         <th className="p-4">Client</th>
+                         <th className="p-4">Status <Info className="w-3 h-3 inline text-gray-400 ml-1"/></th>
+                         <th className="p-4">Date & Time</th>
+                         <th className="p-4 text-center">Duration</th>
+                         <th className="p-4 text-center pr-6">Recording</th>
+                      </tr>
+                   </thead>
+                   <tbody className="divide-y divide-gray-100">
+                      {clientCallHistory.map((call, idx) => {
+                        const isOutgoing = call.callType?.toUpperCase() === 'OUTGOING';
+                        const recordId = call.id || call.callHistoryId;
+                        return (
+                         <tr key={idx} className="hover:bg-gray-50/50 transition">
+                            {/* Direction Icon */}
+                            <td className="p-4 px-6 text-center">
+                              {isOutgoing ? (
+                                <div className="relative inline-flex text-gray-400">
+                                  <PhoneOutgoing className="w-5 h-5" />
+                                  <span className="absolute -top-1 -right-1 text-emerald-500 font-bold text-[14px]">↗</span>
+                                </div>
+                              ) : (
+                                <div className="relative inline-flex text-gray-400">
+                                  <PhoneIncoming className="w-5 h-5" />
+                                  <span className="absolute -top-1 -right-1 text-blue-500 font-bold text-[14px]">↙</span>
+                                </div>
+                              )}
+                            </td>
+
+                            {/* Number Name (Country) */}
+                            <td className="p-4 text-gray-600 font-medium">
+                               {call.countryName || 'United States'}
+                            </td>
+
+                            {/* User (Agent) */}
+                            <td className="p-4 text-gray-600 font-medium">
+                               {call.employeeName}
+                            </td>
+
+                            {/* Client (To Number) - MASKED */}
+                            <td className="p-4 text-gray-600 font-medium flex items-center gap-2">
+                               <Globe className="w-4 h-4 text-orange-400" />
+                               {maskPhoneNumber(call.toNumber)}
+                            </td>
+
+                            {/* Status */}
+                            <td className="p-4 text-gray-600 font-medium capitalize">
+                               {call.status ? call.status.toLowerCase().replace('_', ' ') : '-'}
+                            </td>
+
+                            {/* Date & Time */}
+                            <td className="p-4 text-gray-600 font-medium">
+                               {formatLogDate(call.callTime)}
+                            </td>
+
+                            {/* Duration */}
+                            <td className="p-4 text-center text-gray-600 font-medium">
+                               {call.duration ? call.duration : '-'}
+                            </td>
+
+                            {/* Recording - Inline Overlay Audio Player */}
+                            <td className="p-4 text-center pr-6 relative align-middle">
+                               {/* Floating Absolute Audio Player - FIXED LAYOUT JUMP */}
+                               {playingRecordId === recordId && audioUrl && (
+                                 <div className="absolute right-6 top-1/2 -translate-y-1/2 z-50 flex items-center bg-white shadow-[0_4px_20px_rgba(0,0,0,0.15)] border border-gray-200 rounded-full p-1 animate-in fade-in slide-in-from-right-4">
+                                   <div className="w-[200px] sm:w-[260px] flex items-center">
+                                     <audio 
+                                       src={audioUrl} 
+                                       controls 
+                                       autoPlay 
+                                       className="h-8 w-full outline-none" 
+                                       controlsList="nodownload" 
+                                     />
+                                   </div>
+                                   <button 
+                                     onClick={() => { setPlayingRecordId(null); setAudioUrl(null); }}
+                                     className="p-1.5 shrink-0 bg-transparent hover:bg-rose-50 rounded-full text-gray-400 hover:text-rose-500 transition-colors ml-1"
+                                     title="Close Player"
+                                   >
+                                     <X className="w-4 h-4" />
+                                   </button>
+                                 </div>
+                               )}
+
+                               {/* Default Play Button */}
+                               <div className={`flex justify-center items-center transition-opacity ${playingRecordId === recordId ? 'opacity-0' : 'opacity-100'}`}>
+                                 {call.recordingUrl || call.callSid ? (
+                                   <button 
+                                      onClick={() => handlePlayRecording(call)}
+                                      disabled={fetchingRecordId === recordId}
+                                      title="Play Recording"
+                                      className="inline-block hover:scale-110 transition-transform disabled:opacity-50 disabled:hover:scale-100"
+                                   >
+                                     {fetchingRecordId === recordId ? (
+                                       <Loader2 className="w-6 h-6 text-orange-500 animate-spin" />
+                                     ) : (
+                                       <PlayCircle className="w-6 h-6 text-orange-500" strokeWidth={1.5} />
+                                     )}
+                                   </button>
+                                 ) : (
+                                   <span className="text-gray-300">-</span>
+                                 )}
+                               </div>
+                            </td>
+                         </tr>
+                      )})}
+                   </tbody>
+                 </table>
+                 
+                 {/* Loading Indicator */}
+                 {isClientCallHistoryLoading && (
+                    <div className="flex justify-center py-6">
+                       <Loader2 className="w-6 h-6 animate-spin text-[#5f41b2]" />
                     </div>
-                 ) : clientCallHistory.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-2">
+                 )}
+                 
+                 {/* Empty State */}
+                 {!isClientCallHistoryLoading && clientCallHistory.length === 0 && (
+                    <div className="flex flex-col items-center justify-center py-16 text-gray-400 gap-3">
                        <PhoneOff className="w-12 h-12 opacity-20 mb-2" />
                        <p className="text-sm font-semibold">No call records found for this client.</p>
                     </div>
-                 ) : (
-                    <table className="w-full text-left text-sm">
-                       <thead className="bg-gray-50/80 sticky top-0 z-10">
-                          <tr className="text-xs font-bold text-gray-400 uppercase tracking-wider">
-                             <th className="p-4">Date & Time</th>
-                             <th className="p-4">Agent Code</th>
-                             <th className="p-4">Type</th>
-                             <th className="p-4 text-center">Duration</th>
-                             <th className="p-4 text-center">Status</th>
-                          </tr>
-                       </thead>
-                       <tbody className="divide-y divide-gray-50">
-                          {clientCallHistory.map((call, idx) => (
-                             <tr key={idx} className="hover:bg-blue-50/30 transition">
-                                <td className="p-4 font-medium text-gray-700">
-                                   {new Date(call.callTime).toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit'})}
-                                </td>
-                                <td className="p-4 text-gray-600 font-semibold">{call.employeeCode}</td>
-                                <td className="p-4 text-gray-600">{call.callType || 'Outgoing'}</td>
-                                <td className="p-4 text-center text-gray-600 font-medium">
-                                   {call.durationSeconds ? `${Math.floor(call.durationSeconds / 60)}m ${call.durationSeconds % 60}s` : '-'}
-                                </td>
-                                <td className="p-4 text-center">
-                                   {call.status === 'SUCCESS' || call.status === 'ANSWERED' ? (
-                                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded border border-emerald-100"><CheckCircle2 className="w-3 h-3" /> {call.status}</span>
-                                   ) : call.status === 'FAILED' || call.status === 'MISSED' ? (
-                                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-600 bg-rose-50 px-2 py-1 rounded border border-rose-100"><XCircle className="w-3 h-3" /> {call.status}</span>
-                                   ) : (
-                                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded border border-blue-100"><Clock className="w-3 h-3" /> {call.status}</span>
-                                   )}
-                                </td>
-                             </tr>
-                          ))}
-                       </tbody>
-                    </table>
                  )}
               </div>
            </div>
@@ -564,9 +752,9 @@ const ClientDetailsView: React.FC = () => {
 
       {/* Tax Organizer Modal rendered when triggered from Client Details */}
       <TaxOrganizerModal 
-        isOpen={organizerModalOpen} 
-        onClose={() => setOrganizerModalOpen(false)} 
-        clientId={Number(id)}
+         isOpen={organizerModalOpen} 
+         onClose={() => setOrganizerModalOpen(false)} 
+         clientId={Number(id)}
         clientName={clientData.name}
       />
     </div>

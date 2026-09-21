@@ -8,21 +8,22 @@ import { fetchTeams } from '../../store/slices/teamsSlice';
 import { fetchDepartments } from '../../store/slices/departmentsSlice';
 import { fetchAttendancePolicies } from '../../store/slices/attendanceSlice';
 import { useToast } from '../../contexts/ToastContext';
-import { 
-  UserPlus, 
-  CheckCircle, 
-  XCircle, 
-  Loader2, 
-  Users, 
-  Building2, 
-  Shield, 
+import {
+  UserPlus,
+  CheckCircle,
+  XCircle,
+  Loader2,
+  Users,
+  Building2,
+  Shield,
   ChevronRight,
   ChevronLeft,
   Briefcase,
   IdCard,
   Check,
   AlertCircle,
-  Clock
+  Clock,
+  Phone,
 } from 'lucide-react';
 
 interface FormErrors {
@@ -63,6 +64,10 @@ const CreateEmployee: React.FC = () => {
     roleId: '',
     attendancePolicyId: '',
     workMode: '',
+    // ✅ NEW: CallHippo fields
+    callHippoApiToken: '',
+    callHippoFromNumber: '',
+    callHippoAgentId: '',
   });
 
   const [success, setSuccess] = useState(false);
@@ -226,6 +231,10 @@ const CreateEmployee: React.FC = () => {
         roleId: Number(formData.roleId),
         attendancePolicyId: Number(formData.attendancePolicyId),
         workMode: formData.workMode as 'OFFICE' | 'WORK_FROM_HOME' | 'HYBRID',
+        // ✅ NEW: CallHippo fields (optional — empty strings skipped in thunk)
+        callHippoApiToken: formData.callHippoApiToken.trim() || undefined,
+        callHippoFromNumber: formData.callHippoFromNumber.trim() || undefined,
+        callHippoAgentId: formData.callHippoAgentId.trim() || undefined,
       };
 
       const result = await dispatch(createEmployee(payload)).unwrap();
@@ -238,6 +247,7 @@ const CreateEmployee: React.FC = () => {
         departmentId: formData.departmentId, teamId: formData.teamId, roleId: formData.roleId,
         attendancePolicyId: formData.attendancePolicyId,
         workMode: formData.workMode,
+        callHippoApiToken: '', callHippoFromNumber: '', callHippoAgentId: '',
       });
       setFormErrors({});
       setTouched({});
@@ -553,6 +563,68 @@ const CreateEmployee: React.FC = () => {
                 {touched.workMode && formErrors.workMode && (
                   <p className="text-[11px] text-rose-500 mt-1 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{formErrors.workMode}</p>
                 )}
+              </div>
+
+              {/* ✅ NEW: CallHippo Configuration Section */}
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 sm:p-4 space-y-3">
+                <div className="flex items-center gap-2 pb-2 border-b border-slate-200">
+                  <Phone className="w-4 h-4 text-[#5f41b2]" />
+                  <h3 className="text-xs sm:text-sm font-bold text-[#1b2559]">
+                    CallHippo Configuration <span className="text-slate-400 font-normal">(Optional)</span>
+                  </h3>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 mb-1" htmlFor="callHippoApiToken">
+                      API Token
+                    </label>
+                    <input
+                      id="callHippoApiToken"
+                      type="text"
+                      name="callHippoApiToken"
+                      value={formData.callHippoApiToken}
+                      onChange={handleChange}
+                      placeholder="Enter CallHippo API Token"
+                      className="w-full min-h-[44px] px-3.5 py-2.5 text-xs sm:text-sm border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#5f41b2] bg-white font-mono"
+                      disabled={isSubmitting}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-600 mb-1" htmlFor="callHippoFromNumber">
+                        From Number
+                      </label>
+                      <input
+                        id="callHippoFromNumber"
+                        type="text"
+                        name="callHippoFromNumber"
+                        value={formData.callHippoFromNumber}
+                        onChange={handleChange}
+                        placeholder="e.g., +1234567890"
+                        className="w-full min-h-[44px] px-3.5 py-2.5 text-xs sm:text-sm border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#5f41b2] bg-white"
+                        disabled={isSubmitting}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-600 mb-1" htmlFor="callHippoAgentId">
+                        Agent ID
+                      </label>
+                      <input
+                        id="callHippoAgentId"
+                        type="text"
+                        name="callHippoAgentId"
+                        value={formData.callHippoAgentId}
+                        onChange={handleChange}
+                        placeholder="Enter CallHippo Agent ID"
+                        className="w-full min-h-[44px] px-3.5 py-2.5 text-xs sm:text-sm border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#5f41b2] bg-white"
+                        disabled={isSubmitting}
+                      />
+                    </div>
+                  </div>
+                </div>
               </div>
 
               {/* Summary Card */}

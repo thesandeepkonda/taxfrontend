@@ -15,25 +15,23 @@ export interface AttendanceResponse {
   totalBreakMinutes: number;
   totalIdleMinutes: number;
   breakActive: boolean;
-  // ✅ NEW flags from backend
   policyViolation: boolean;
   isLate: boolean;
   isEarlyCheckout: boolean;
 }
 
-// ✅ Team Attendance Response (For Team Lead)
 export interface TeamAttendanceResponse {
   id: number | null;
   employeeId: number;
   employeeCode: string;
   employeeName: string;
   attendanceDate: string;
-  shiftStartTime: string | null; // HH:mm
-  shiftEndTime: string | null;   // HH:mm
+  shiftStartTime: string | null;
+  shiftEndTime: string | null;
   checkIn: string | null;
   checkOut: string | null;
   status: 'PRESENT' | 'ABSENT' | 'HALF_DAY' | 'ON_LEAVE' | 'NOT_CHECKED_OUT' | string;
-  currentStatus: string; // "On Shift", "Off Shift", "Upcoming"
+  currentStatus: string;
   workingDays: string;
   totalWorkMinutes: number;
   totalBreakMinutes: number;
@@ -44,12 +42,47 @@ export interface TeamAttendanceResponse {
   earlyCheckout: boolean;
 }
 
-// ✅ Updated: no breaks list, now has allowedBreakMinutes
+// ✅ Attendance status enum
+export type AttendanceStatusEnum =
+  | 'PRESENT'
+  | 'ABSENT'
+  | 'HALF_DAY'
+  | 'ON_LEAVE'
+  | 'NOT_CHECKED_OUT';
+
+// ✅ Leave type enum
+export type LeaveTypeEnum =
+  | 'CASUAL'
+  | 'SICK'
+  | 'EARNED'
+  | 'MATERNITY'
+  | 'PATERNITY'
+  | 'COMP_OFF'
+  | 'OTHER';
+
+// ✅ NEW: Daily Summary Response (replaces UserResponseDto)
+export interface DailySummaryResponse {
+  employeeId: number;
+  employeeCode: string;
+  firstName: string;
+  lastName: string | null;
+  email: string;
+  phone: string;
+  departmentName: string | null;
+  teamName: string | null;
+  attendanceStatus: AttendanceStatusEnum | string;
+  leaveType?: LeaveTypeEnum | string | null;
+  checkIn: string | null;
+  checkOut: string | null;
+  totalWorkMinutes: number;
+  shiftStartTime: string | null;
+}
+
 export interface CreateAttendancePolicyRequest {
   name: string;
-  startTime: string; // HH:mm
+  startTime: string;
   endTime: string;
-  allowedBreakMinutes: number; // daily allowance
+  allowedBreakMinutes: number;
 }
 
 export interface AttendancePolicyResponse {
@@ -57,7 +90,7 @@ export interface AttendancePolicyResponse {
   name: string;
   startTime: string;
   endTime: string;
-  allowedBreakMinutes: number; // NEW
+  allowedBreakMinutes: number;
   active: boolean;
 }
 
@@ -81,8 +114,9 @@ interface AttendanceState {
   currentPolicy: AttendancePolicyResponse | null;
   list: AttendancePolicyResponse[];
   calendar: AttendanceCalendarResponse[];
-  teamSchedule: TeamAttendanceResponse[]; // NEW
-  teamAttendance: TeamAttendanceResponse[]; // ✅ NEW
+  teamSchedule: TeamAttendanceResponse[];
+  teamAttendance: TeamAttendanceResponse[];
+  dailySummary: DailySummaryResponse[]; // ✅ NEW (replaces absentEmployees)
   loading: boolean;
   error: string | null;
 }
@@ -92,15 +126,15 @@ const initialState: AttendanceState = {
   currentPolicy: null,
   list: [],
   calendar: [],
-  teamSchedule: [], // NEW
-  teamAttendance: [], // ✅ NEW
+  teamSchedule: [],
+  teamAttendance: [],
+  dailySummary: [], // ✅ NEW
   loading: false,
   error: null,
 };
 
 // ---------- Async Thunks ----------
 
-// GET /attendance/today
 export const fetchTodayAttendance = createAsyncThunk(
   'attendance/fetchToday',
   async (_, { rejectWithValue }) => {
@@ -223,7 +257,6 @@ export const fetchAttendancePolicies = createAsyncThunk(
   }
 );
 
-// NEW: Get policies by status
 export const fetchAttendancePoliciesByStatus = createAsyncThunk(
   'attendance/fetchPoliciesByStatus',
   async (active: boolean, { rejectWithValue }) => {
@@ -274,7 +307,6 @@ export const activateAttendancePolicy = createAsyncThunk(
   }
 );
 
-// NEW: Fetch Team Schedule
 export const fetchTeamSchedule = createAsyncThunk(
   'attendance/fetchTeamSchedule',
   async (date: string, { rejectWithValue }) => {
@@ -289,16 +321,39 @@ export const fetchTeamSchedule = createAsyncThunk(
   }
 );
 
-// ✅ NEW: Fetch My Team Attendance (Team Lead)
 export const fetchMyTeamAttendance = createAsyncThunk(
   'attendance/fetchMyTeam',
   async (date: string | null = null, { rejectWithValue }) => {
     try {
       const params = date ? { date } : {};
       const response = await apiDev1.get('/attendance/my-team', { params });
-      return response.data; // List<TeamAttendanceResponse>
+      return response.data;
     } catch (error: any) {
       return rejectWithValue(error.response?.data?.message || 'Failed to fetch team attendance');
+    }
+  }
+);
+
+// ============================================================
+// ✅ NEW: Fetch Daily Summary (Admin)
+// GET /api/attendance/daily-summary?date=YYYY-MM-DD&status=PRESENT
+// ============================================================
+export const fetchDailySummary = createAsyncThunk<
+  DailySummaryResponse[],
+  { date: string; status: AttendanceStatusEnum | string },
+  { rejectValue: string }
+>(
+  'attendance/fetchDailySummary',
+  async ({ date, status }, { rejectWithValue }) => {
+    try {
+      const response = await apiDev1.get('/attendance/daily-summary', {
+        params: { date, status },
+      });
+      return response.data;
+    } catch (error: any) {
+      return rejectWithValue(
+        error.response?.data?.message || 'Failed to fetch daily summary'
+      );
     }
   }
 );
@@ -313,12 +368,17 @@ const attendanceSlice = createSlice({
       state.currentPolicy = null;
       state.list = [];
       state.calendar = [];
-      state.teamSchedule = []; // NEW
-      state.teamAttendance = []; // ✅ NEW
+      state.teamSchedule = [];
+      state.teamAttendance = [];
+      state.dailySummary = []; // ✅ NEW
       state.error = null;
     },
     clearError: (state) => {
       state.error = null;
+    },
+    // ✅ NEW
+    clearDailySummary: (state) => {
+      state.dailySummary = [];
     },
   },
   extraReducers: (builder) => {
@@ -440,14 +500,14 @@ const attendanceSlice = createSlice({
         state.loading = false;
         state.error = action.payload as string;
       })
-      // Fetch Policies by Status (Active/Inactive)
+      // Fetch Policies by Status
       .addCase(fetchAttendancePoliciesByStatus.pending, (state) => {
         state.loading = true;
         state.error = null;
       })
       .addCase(fetchAttendancePoliciesByStatus.fulfilled, (state, action: PayloadAction<AttendancePolicyResponse[]>) => {
         state.loading = false;
-        state.list = action.payload; // Replace list with filtered results
+        state.list = action.payload;
       })
       .addCase(fetchAttendancePoliciesByStatus.rejected, (state, action) => {
         state.loading = false;
@@ -513,7 +573,7 @@ const attendanceSlice = createSlice({
         state.loading = false;
         state.error = action.payload as string;
       })
-      // NEW: Fetch Team Schedule
+      // Team Schedule
       .addCase(fetchTeamSchedule.pending, (state) => {
         state.loading = true;
         state.error = null;
@@ -526,7 +586,7 @@ const attendanceSlice = createSlice({
         state.loading = false;
         state.error = action.payload as string;
       })
-      // ✅ NEW: My Team Attendance
+      // My Team Attendance
       .addCase(fetchMyTeamAttendance.pending, (state) => {
         state.loading = true;
         state.error = null;
@@ -538,9 +598,22 @@ const attendanceSlice = createSlice({
       .addCase(fetchMyTeamAttendance.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload as string;
+      })
+      // ✅ NEW: Daily Summary
+      .addCase(fetchDailySummary.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(fetchDailySummary.fulfilled, (state, action: PayloadAction<DailySummaryResponse[]>) => {
+        state.loading = false;
+        state.dailySummary = action.payload || [];
+      })
+      .addCase(fetchDailySummary.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload as string;
       });
   },
 });
 
-export const { clearAttendance, clearError } = attendanceSlice.actions;
+export const { clearAttendance, clearError, clearDailySummary } = attendanceSlice.actions;
 export default attendanceSlice.reducer;

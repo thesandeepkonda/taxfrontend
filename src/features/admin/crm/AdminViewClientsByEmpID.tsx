@@ -28,6 +28,8 @@ import {
   Check,
   Layers,
   Sparkles,
+  PhoneOutgoing,
+  History, // ✅ NEW: for "Call History with" button
 } from 'lucide-react';
 
 const AdminViewClientsByEmpID: React.FC = () => {
@@ -424,6 +426,34 @@ const AdminViewClientsByEmpID: React.FC = () => {
                       >
                         <FileText className="w-3.5 h-3.5 shrink-0" />
                         <span>Tax Org</span>
+                      </button>
+
+                      {/* Call History — Client only */}
+                      <button
+                        onClick={() =>
+                          navigate(
+                            `/admin/crm/view-call-log/${client.clientId}?name=${encodeURIComponent(client.name)}`
+                          )
+                        }
+                        className="inline-flex items-center justify-center gap-1 px-2.5 py-1.5 bg-cyan-50/80 hover:bg-cyan-600 text-cyan-700 hover:text-white border border-cyan-200 hover:border-cyan-600 rounded-[5px] text-xs font-bold transition shadow-2xs active:scale-95 cursor-pointer h-8 flex-1 min-w-[70px]"
+                        title="View all calls for this client"
+                      >
+                        <PhoneOutgoing className="w-3.5 h-3.5 shrink-0" />
+                        <span>Calls</span>
+                      </button>
+
+                      {/* ✅ NEW: Call History with ClientName + EmpID */}
+                      <button
+                        onClick={() =>
+                          navigate(
+                            `/admin/crm/view-call-log/${client.clientId}/${empID}?name=${encodeURIComponent(client.name)}&empName=${encodeURIComponent(employeeName)}&empCode=${encodeURIComponent(employeeCode)}`
+                          )
+                        }
+                        className="inline-flex items-center justify-center gap-1 px-2.5 py-1.5 bg-gradient-to-r from-[#5f41b2] to-[#7c5ddc] hover:from-[#4d3396] hover:to-[#6a4fc7] text-white border border-[#5f41b2] rounded-[5px] text-xs font-bold transition shadow-2xs active:scale-95 cursor-pointer h-8 flex-1 min-w-[160px]"
+                        title={`View call history of ${client.name} with ${employeeName}`}
+                      >
+                        <History className="w-3.5 h-3.5 shrink-0" />
+                        <span className="truncate">Call History with {client.name}</span>
                       </button>
 
                       {isPrep ? (

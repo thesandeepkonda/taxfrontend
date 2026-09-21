@@ -3,10 +3,10 @@ import axios, { AxiosInstance, InternalAxiosRequestConfig, AxiosResponse } from 
 import { store } from '../store';
 import { logout, setCredentials } from '../store/slices/authSlice';
 import { retryRequest, defaultShouldRetry } from './retry';
-import { globalCircuitBreaker } from './circuitBreaker'; // ✅ Import circuit breaker
+import { globalCircuitBreaker } from './circuitBreaker'; 
 
-const DEV1_IP = 'http://192.168.0.115:8081/api'; // Your backend IP
-const DEV2_IP = 'http://192.168.0.115:8081/api';
+const DEV1_IP = 'http://192.168.0.181:8080/api';
+const DEV2_IP = 'http://192.168.0.95:8080/api';
 
 interface QueuedRequest {
   resolve: (token: string) => void;
@@ -30,7 +30,7 @@ const processQueue = (error: any, token: string | null = null) => {
 const createApiClient = (baseURL: string): AxiosInstance => {
   const instance = axios.create({
     baseURL,
-    timeout: 5 * 60 * 1000, // ✅ Updated to 5 minutes (300,000 ms)
+    timeout: 5 * 60 * 1000,
     headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json',
@@ -49,17 +49,14 @@ const createApiClient = (baseURL: string): AxiosInstance => {
     (error) => Promise.reject(error)
   );
 
-  // Response Interceptor – refresh token, retry, and circuit breaker
   instance.interceptors.response.use(
     (response: AxiosResponse) => {
-      // ✅ Record success – may close circuit if it was half-open
       globalCircuitBreaker.recordSuccess();
       return response;
     },
     async (error) => {
       const originalRequest = error.config;
 
-      // Prevent infinite loop if refresh endpoint itself fails
       if (originalRequest.url?.includes('/auth/refresh')) {
         store.dispatch(logout());
         localStorage.clear();
@@ -67,20 +64,16 @@ const createApiClient = (baseURL: string): AxiosInstance => {
         return Promise.reject(error);
       }
 
-      // 🛑 CIRCUIT BREAKER CHECK
       if (!globalCircuitBreaker.canCall()) {
-        // Circuit is OPEN – reject immediately with a special flag
         const circuitError = new Error('Service temporarily unavailable');
         (circuitError as any)._isCircuitOpen = true;
-        (circuitError as any)._isFinalFailure = true; // Flag for toast control
+        (circuitError as any)._isFinalFailure = true;
         return Promise.reject(circuitError);
       }
 
-      // If we have a response, check status
       if (error.response) {
         const { status } = error.response;
 
-        // ---------- Token Refresh (401 / 403) ----------
         if ((status === 401 || status === 403) && !originalRequest._retry) {
           if (isRefreshing) {
             return new Promise((resolve, reject) => {
@@ -147,7 +140,6 @@ const createApiClient = (baseURL: string): AxiosInstance => {
           }
         }
 
-        // ---------- Retry Logic (5xx, 429, Network Errors) ----------
         const isRetryable = defaultShouldRetry(error);
 
         if (isRetryable) {
@@ -156,7 +148,6 @@ const createApiClient = (baseURL: string): AxiosInstance => {
             originalRequest._retryCount = 0;
           }
 
-          // ✅ If we've already retried 3 times, record failure and reject
           if (originalRequest._retryCount >= 3) {
             console.error(`❌ Request ${originalRequest.url} failed after 3 retries.`);
             // Record failure – may open circuit

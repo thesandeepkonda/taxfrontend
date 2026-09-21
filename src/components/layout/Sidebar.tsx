@@ -11,7 +11,8 @@ import {
   Home, Users, FileText, Calendar as CalendarIcon, BarChart2, Bell, Settings,
   ChevronDown, ChevronUp, ChevronLeft, ChevronRight, LogOut,
   CheckSquare, FolderCheck, Calculator, AlertCircle, CreditCard, Send, X,
-  Eye, Shield, Clock, CalendarDays, Lock, EyeOff, Loader2
+  Eye, Shield, Clock, CalendarDays, Lock, EyeOff, Loader2, PhoneOutgoing,
+  MessageSquare // ✅ Added MessageSquare icon for Chat
 } from 'lucide-react';
 import logo from '../../assets/logo.png';
 
@@ -194,6 +195,8 @@ const Sidebar: React.FC = () => {
         title: 'Main',
         items: [
           { id: 'dashboard', name: 'Dashboard', path: '/dashboard', icon: Home },
+          // ✅ Added Chat Option for Admin
+          { id: 'chat', name: 'Chat Workspace', path: '/chat', icon: MessageSquare },
           {
             id: 'posts', name: 'Post', icon: FileText,
             subItems: [
@@ -277,6 +280,8 @@ const Sidebar: React.FC = () => {
     if (user?.role === 'TEAMLEAD' || user?.role === 'TEAM_LEAD') {
       teamManagementItems = [
         { id: 'dashboard', name: 'TL Dashboard', path: '/dashboard', icon: Home },
+        // ✅ Added Chat Option for Team Lead
+        { id: 'chat', name: 'Chat Workspace', path: '/chat', icon: MessageSquare },
         { id: 'events', name: 'Events', path: '/events', icon: CalendarIcon },
         { id: 'leaves', name: 'Leave Management', path: '/leaves', icon: CalendarDays },
         {
@@ -288,9 +293,20 @@ const Sidebar: React.FC = () => {
         },
         { id: 'schedules', name: 'Team Schedules', path: '/schedules', icon: CalendarIcon }
       ];
+
+      if (deptName.includes('DOC')) {
+        teamManagementItems.push({
+          id: 'team_calls',
+          name: 'Team Call Reports',
+          path: '/docs/team-calls',
+          icon: PhoneOutgoing
+        });
+      }
     } else {
       teamManagementItems = [
         { id: 'dashboard', name: 'Dashboard', path: '/dashboard', icon: Home },
+        // ✅ Added Chat Option for Employee
+        { id: 'chat', name: 'Chat Workspace', path: '/chat', icon: MessageSquare },
         { id: 'events', name: 'Events', path: '/events', icon: CalendarIcon },
         { id: 'leaves', name: 'Leave Management', path: '/leaves', icon: CalendarDays }
       ];

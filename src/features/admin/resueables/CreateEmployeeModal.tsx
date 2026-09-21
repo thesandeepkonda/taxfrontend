@@ -8,14 +8,14 @@ import { fetchTeams } from '../../../store/slices/teamsSlice';
 import { fetchDepartments } from '../../../store/slices/departmentsSlice';
 import { fetchAttendancePolicies } from '../../../store/slices/attendanceSlice';
 import { useToast } from '../../../contexts/ToastContext';
-import { 
-  UserPlus, 
-  CheckCircle, 
-  XCircle, 
-  Loader2, 
-  Users, 
-  Building2, 
-  Shield, 
+import {
+  UserPlus,
+  CheckCircle,
+  XCircle,
+  Loader2,
+  Users,
+  Building2,
+  Shield,
   ChevronRight,
   ChevronLeft,
   Briefcase,
@@ -23,7 +23,8 @@ import {
   Check,
   AlertCircle,
   Clock,
-  X
+  X,
+  Phone,
 } from 'lucide-react';
 
 interface FormErrors {
@@ -56,7 +57,7 @@ const CreateEmployeeModal: React.FC<CreateEmployeeModalProps> = ({
 }) => {
   const dispatch = useDispatch<AppDispatch>();
   const { showToast } = useToast();
-  
+
   const { loading } = useSelector((state: RootState) => state.users);
   const { list: roles } = useSelector((state: RootState) => state.roles);
   const { list: teams } = useSelector((state: RootState) => state.teams);
@@ -79,13 +80,16 @@ const CreateEmployeeModal: React.FC<CreateEmployeeModalProps> = ({
     roleId: '',
     attendancePolicyId: '',
     workMode: '',
+    // ✅ NEW: CallHippo fields
+    callHippoApiToken: '',
+    callHippoFromNumber: '',
+    callHippoAgentId: '',
   });
 
   const [success, setSuccess] = useState(false);
   const [createdEmployee, setCreatedEmployee] = useState<any>(null);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
 
-  // ✅ Use ref to track if initial data has been fetched
   const initialFetchDone = useRef(false);
 
   // Reset form when modal opens
@@ -97,21 +101,19 @@ const CreateEmployeeModal: React.FC<CreateEmployeeModalProps> = ({
       setSuccess(false);
       setCreatedEmployee(null);
       dispatch(clearError());
-      
-      // Set default department and team if provided
+
       if (preSelectedDepartmentId) {
         setFormData(prev => ({ ...prev, departmentId: String(preSelectedDepartmentId) }));
       }
       if (preSelectedTeamId) {
         setFormData(prev => ({ ...prev, teamId: String(preSelectedTeamId) }));
       }
-      
-      // ✅ Reset fetch flag when modal opens
+
       initialFetchDone.current = false;
     }
   }, [isOpen, preSelectedDepartmentId, preSelectedTeamId, dispatch]);
 
-  // ✅ Fetch initial data - ONLY ONCE when modal opens
+  // Fetch initial data - ONLY ONCE when modal opens
   useEffect(() => {
     if (isOpen && !initialFetchDone.current) {
       const fetchInitialData = async () => {
@@ -124,7 +126,6 @@ const CreateEmployeeModal: React.FC<CreateEmployeeModalProps> = ({
             dispatch(fetchAttendancePolicies()).unwrap(),
           ]);
 
-          // Set defaults only if not already set via props
           if (!preSelectedDepartmentId && departments.length > 0) {
             const defaultDept = departments[0];
             setFormData(prev => ({ ...prev, departmentId: String(defaultDept.id) }));
@@ -142,8 +143,7 @@ const CreateEmployeeModal: React.FC<CreateEmployeeModalProps> = ({
           if (!formData.workMode) {
             setFormData(prev => ({ ...prev, workMode: 'OFFICE' }));
           }
-          
-          // ✅ Mark fetch as done
+
           initialFetchDone.current = true;
         } catch (err) {
           console.error('Error fetching data:', err);
@@ -277,6 +277,10 @@ const CreateEmployeeModal: React.FC<CreateEmployeeModalProps> = ({
         roleId: Number(formData.roleId),
         attendancePolicyId: Number(formData.attendancePolicyId),
         workMode: formData.workMode as 'OFFICE' | 'WORK_FROM_HOME' | 'HYBRID',
+        // ✅ NEW: CallHippo fields
+        callHippoApiToken: formData.callHippoApiToken.trim() || undefined,
+        callHippoFromNumber: formData.callHippoFromNumber.trim() || undefined,
+        callHippoAgentId: formData.callHippoAgentId.trim() || undefined,
       };
 
       const result = await dispatch(createEmployee(payload)).unwrap();
@@ -291,6 +295,7 @@ const CreateEmployeeModal: React.FC<CreateEmployeeModalProps> = ({
         roleId: formData.roleId,
         attendancePolicyId: formData.attendancePolicyId,
         workMode: formData.workMode,
+        callHippoApiToken: '', callHippoFromNumber: '', callHippoAgentId: '',
       });
       setFormErrors({});
       setTouched({});
@@ -315,6 +320,7 @@ const CreateEmployeeModal: React.FC<CreateEmployeeModalProps> = ({
     setFormData({
       employeeCode: '', firstName: '', lastName: '', email: '', phone: '',
       departmentId: '', teamId: '', roleId: '', attendancePolicyId: '', workMode: '',
+      callHippoApiToken: '', callHippoFromNumber: '', callHippoAgentId: '',
     });
     setFormErrors({});
     setTouched({});
@@ -331,7 +337,7 @@ const CreateEmployeeModal: React.FC<CreateEmployeeModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto border border-slate-100">
-        
+
         {/* Modal Header */}
         <div className="sticky top-0 bg-white z-10 px-6 py-4 border-b border-slate-100 flex items-center justify-between rounded-t-2xl">
           <div className="flex items-center gap-2.5">
@@ -650,6 +656,66 @@ const CreateEmployeeModal: React.FC<CreateEmployeeModalProps> = ({
                     {touched.workMode && formErrors.workMode && (
                       <p className="text-[11px] text-rose-500 mt-1 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{formErrors.workMode}</p>
                     )}
+                  </div>
+
+                  {/* ✅ NEW: CallHippo Configuration */}
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 sm:p-4 space-y-3">
+                    <div className="flex items-center gap-2 pb-2 border-b border-slate-200">
+                      <Phone className="w-4 h-4 text-[#5f41b2]" />
+                      <h3 className="text-xs sm:text-sm font-bold text-[#1b2559]">
+                        CallHippo Configuration <span className="text-slate-400 font-normal">(Optional)</span>
+                      </h3>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-600 mb-1" htmlFor="callHippoApiToken">
+                        API Token
+                      </label>
+                      <input
+                        id="callHippoApiToken"
+                        type="text"
+                        name="callHippoApiToken"
+                        value={formData.callHippoApiToken}
+                        onChange={handleChange}
+                        placeholder="Enter CallHippo API Token"
+                        className="w-full min-h-[44px] px-3.5 py-2.5 text-xs sm:text-sm border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#5f41b2] bg-white font-mono"
+                        disabled={isSubmitting}
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-600 mb-1" htmlFor="callHippoFromNumber">
+                          From Number
+                        </label>
+                        <input
+                          id="callHippoFromNumber"
+                          type="text"
+                          name="callHippoFromNumber"
+                          value={formData.callHippoFromNumber}
+                          onChange={handleChange}
+                          placeholder="e.g., +1234567890"
+                          className="w-full min-h-[44px] px-3.5 py-2.5 text-xs sm:text-sm border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#5f41b2] bg-white"
+                          disabled={isSubmitting}
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-600 mb-1" htmlFor="callHippoAgentId">
+                          Agent ID
+                        </label>
+                        <input
+                          id="callHippoAgentId"
+                          type="text"
+                          name="callHippoAgentId"
+                          value={formData.callHippoAgentId}
+                          onChange={handleChange}
+                          placeholder="Enter CallHippo Agent ID"
+                          className="w-full min-h-[44px] px-3.5 py-2.5 text-xs sm:text-sm border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#5f41b2] bg-white"
+                          disabled={isSubmitting}
+                        />
+                      </div>
+                    </div>
                   </div>
 
                   {/* Summary Card */}

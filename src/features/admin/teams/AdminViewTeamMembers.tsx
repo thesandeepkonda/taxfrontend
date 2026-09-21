@@ -1,5 +1,5 @@
 // src/features/admin/teams/AdminViewTeamMembers.tsx
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { AppDispatch, RootState } from '../../../store';
@@ -10,7 +10,7 @@ import {
   assignTeamLead,
 } from '../../../store/slices/teamsSlice';
 import { fetchRoles } from '../../../store/slices/rolesSlice';
-import { quickAssign } from '../../../store/slices/usersSlice';
+import { quickAssign, fetchUsers, User } from '../../../store/slices/usersSlice';
 import { useToast } from '../../../contexts/ToastContext';
 // ✅ Import CreateEmployeeModal
 import CreateEmployeeModal from '../resueables/CreateEmployeeModal';
@@ -32,6 +32,9 @@ import {
   Building2,
   Sparkles,
   UserPlus,
+  UserPlus2,
+  Search,
+  X,
 } from 'lucide-react';
 
 // Helper to get default date (30 days ago)
@@ -52,6 +55,7 @@ const AdminViewTeamMembers: React.FC = () => {
   const teamId = Number(teamID);
   const { teamUsers, loading, currentTeam } = useSelector((state: RootState) => state.teams);
   const { list: roles, loading: rolesLoading } = useSelector((state: RootState) => state.roles);
+  const { list: allUsers, loading: usersLoading } = useSelector((state: RootState) => state.users);
 
   // Local state for per-user date ranges (Report)
   const [reportDates, setReportDates] = useState<Record<number, { from: string; to: string }>>({});
@@ -62,6 +66,12 @@ const AdminViewTeamMembers: React.FC = () => {
 
   // ✅ Create Employee Modal State
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+
+  // ✅ NEW: Assign Existing Employee Modal State
+  const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
+  const [assignSearchQuery, setAssignSearchQuery] = useState('');
+  const [selectedUserId, setSelectedUserId] = useState<number | ''>('');
+  const [isAssigning, setIsAssigning] = useState(false);
 
   // Fetch roles on mount if not already loaded
   useEffect(() => {
@@ -114,6 +124,95 @@ const AdminViewTeamMembers: React.FC = () => {
       setRoleSelections(initialRoles);
     }
   }, [teamUsers]);
+
+  // ============================================================
+  // ✅ NEW: Load all users when Assign Modal opens
+  // ============================================================
+  useEffect(() => {
+    if (isAssignModalOpen && allUsers.length === 0) {
+      dispatch(fetchUsers());
+    }
+  }, [isAssignModalOpen, allUsers.length, dispatch]);
+
+  // ============================================================
+  // ✅ NEW: Filter available employees (exclude current team members)
+  // ============================================================
+  const availableEmployees = useMemo(() => {
+    const currentTeamUserIds = new Set(teamUsers.map((u) => u.id));
+    return allUsers.filter((u) => {
+      // Exclude already-in-team users
+      if (currentTeamUserIds.has(u.id)) return false;
+      // Only active users
+      if (!u.active) return false;
+      return true;
+    });
+  }, [allUsers, teamUsers]);
+
+  // Filter by search query
+  const filteredAvailableEmployees = useMemo(() => {
+    const q = assignSearchQuery.toLowerCase().trim();
+    if (!q) return availableEmployees;
+    return availableEmployees.filter(
+      (u) =>
+        `${u.firstName} ${u.lastName || ''}`.toLowerCase().includes(q) ||
+        u.employeeCode.toLowerCase().includes(q) ||
+        u.email.toLowerCase().includes(q) ||
+        (u.departmentName && u.departmentName.toLowerCase().includes(q))
+    );
+  }, [availableEmployees, assignSearchQuery]);
+
+  // ============================================================
+  // ✅ NEW: Assign Existing Employee Handler
+  // ============================================================
+  const handleAssignExistingEmployee = async () => {
+    if (!selectedUserId) {
+      showToast('Please select an employee to assign', 'warning');
+      return;
+    }
+
+    if (!currentTeam?.departmentId) {
+      showToast('Team department info missing. Please refresh.', 'error');
+      return;
+    }
+
+    setIsAssigning(true);
+    try {
+      await dispatch(
+        quickAssign({
+          userId: Number(selectedUserId),
+          data: {
+            teamId: teamId,
+            departmentId: currentTeam.departmentId,
+          },
+        })
+      ).unwrap();
+
+      const assignedUser = allUsers.find((u) => u.id === Number(selectedUserId));
+      const name = assignedUser
+        ? `${assignedUser.firstName} ${assignedUser.lastName || ''}`.trim()
+        : 'Employee';
+
+      showToast(`${name} assigned to ${currentTeam.name} successfully!`, 'success');
+
+      // Reset & close
+      setIsAssignModalOpen(false);
+      setSelectedUserId('');
+      setAssignSearchQuery('');
+
+      // Refresh team users
+      dispatch(fetchUsersByTeam(teamId)).unwrap().catch(() => {});
+    } catch (err: any) {
+      showToast(err || 'Failed to assign employee to team', 'error');
+    } finally {
+      setIsAssigning(false);
+    }
+  };
+
+  const handleCloseAssignModal = () => {
+    setIsAssignModalOpen(false);
+    setSelectedUserId('');
+    setAssignSearchQuery('');
+  };
 
   // ============================================================
   // Report handlers
@@ -299,14 +398,25 @@ const AdminViewTeamMembers: React.FC = () => {
             </div>
           </div>
 
-          {/* ✅ Right Section: Add/Create Employee Button */}
-          <button
-            onClick={() => setIsCreateModalOpen(true)}
-            className="flex items-center gap-2 px-3.5 py-2 bg-[#5f41b2] hover:bg-[#4d3396] text-white rounded-[5px] text-xs font-bold transition shadow-2xs cursor-pointer active:scale-95"
-          >
-            <UserPlus className="w-4 h-4" />
-            <span>Create Employee</span>
-          </button>
+          {/* ✅ Right Section: Assign Existing + Create Employee Buttons */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => setIsAssignModalOpen(true)}
+              className="flex items-center gap-2 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-[5px] text-xs font-bold transition shadow-2xs cursor-pointer active:scale-95"
+              title="Assign an existing employee to this team"
+            >
+              <UserPlus2 className="w-4 h-4" />
+              <span>Assign Existing Employee</span>
+            </button>
+
+            <button
+              onClick={() => setIsCreateModalOpen(true)}
+              className="flex items-center gap-2 px-3.5 py-2 bg-[#5f41b2] hover:bg-[#4d3396] text-white rounded-[5px] text-xs font-bold transition shadow-2xs cursor-pointer active:scale-95"
+            >
+              <UserPlus className="w-4 h-4" />
+              <span>Create Employee</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -321,12 +431,21 @@ const AdminViewTeamMembers: React.FC = () => {
           <div className="flex flex-col items-center justify-center h-full text-slate-400 gap-2 py-16 bg-white border border-gray-200/80 rounded-[5px]">
             <Users className="w-12 h-12 opacity-20" />
             <p className="text-sm font-semibold">No members found in this team</p>
-            <button
-              onClick={() => setIsCreateModalOpen(true)}
-              className="mt-2 text-xs font-bold text-[#5f41b2] hover:underline flex items-center gap-1"
-            >
-              <UserPlus className="w-3.5 h-3.5" /> Add first employee to this team
-            </button>
+            <div className="flex items-center gap-3 mt-2">
+              <button
+                onClick={() => setIsCreateModalOpen(true)}
+                className="text-xs font-bold text-[#5f41b2] hover:underline flex items-center gap-1"
+              >
+                <UserPlus className="w-3.5 h-3.5" /> Create new employee
+              </button>
+              <span className="text-gray-300">|</span>
+              <button
+                onClick={() => setIsAssignModalOpen(true)}
+                className="text-xs font-bold text-emerald-600 hover:underline flex items-center gap-1"
+              >
+                <UserPlus2 className="w-3.5 h-3.5" /> Assign existing
+              </button>
+            </div>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-5 pb-4">
@@ -512,7 +631,6 @@ const AdminViewTeamMembers: React.FC = () => {
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
         onSuccess={() => {
-          // Refresh team members after employee creation
           dispatch(fetchUsersByTeam(teamId))
             .unwrap()
             .catch((err) => {
@@ -523,6 +641,197 @@ const AdminViewTeamMembers: React.FC = () => {
         preSelectedDepartmentId={currentTeam?.departmentId || null}
         preSelectedTeamId={teamId}
       />
+
+      {/* ============================================================ */}
+      {/* ✅ NEW: Assign Existing Employee Modal                        */}
+      {/* ============================================================ */}
+      {isAssignModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden border border-slate-100">
+            {/* Modal Header */}
+            <div className="bg-white px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center">
+                  <UserPlus2 className="w-5 h-5 text-emerald-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-[#1b2559]">Assign Existing Employee</h3>
+                  <p className="text-xs text-slate-500">
+                    Add an employee to{' '}
+                    <span className="font-bold text-[#5f41b2]">
+                      {currentTeam ? currentTeam.name : `Team #${teamId}`}
+                    </span>
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={handleCloseAssignModal}
+                className="p-2 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition cursor-pointer"
+                disabled={isAssigning}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-4 [scrollbar-width:thin]">
+              {/* Search */}
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Search employees by name, code, email or department..."
+                  value={assignSearchQuery}
+                  onChange={(e) => setAssignSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                  autoFocus
+                />
+              </div>
+
+              {/* Employee List */}
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                  Select Employee ({filteredAvailableEmployees.length} available)
+                </label>
+
+                {usersLoading && allUsers.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-slate-400 gap-3">
+                    <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
+                    <p className="text-sm font-semibold">Loading employees...</p>
+                  </div>
+                ) : filteredAvailableEmployees.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-slate-400 gap-2 bg-slate-50 border border-dashed border-slate-200 rounded-xl">
+                    <Users className="w-10 h-10 opacity-20" />
+                    <p className="text-sm font-semibold">
+                      {assignSearchQuery
+                        ? 'No matching employees found'
+                        : 'All active employees are already in this team'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="max-h-[380px] overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100 [scrollbar-width:thin]">
+                    {filteredAvailableEmployees.map((emp) => {
+                      const isSelected = selectedUserId === emp.id;
+                      const fullName = `${emp.firstName} ${emp.lastName || ''}`.trim();
+                      return (
+                        <button
+                          type="button"
+                          key={emp.id}
+                          onClick={() => setSelectedUserId(emp.id)}
+                          disabled={isAssigning}
+                          className={`w-full text-left p-3.5 flex items-center justify-between gap-3 transition cursor-pointer ${
+                            isSelected
+                              ? 'bg-emerald-50 border-l-4 border-l-emerald-600'
+                              : 'hover:bg-slate-50 border-l-4 border-l-transparent'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3 min-w-0 flex-1">
+                            <div
+                              className={`w-10 h-10 rounded-[5px] flex items-center justify-center font-extrabold text-sm shrink-0 border ${
+                                isSelected
+                                  ? 'bg-emerald-600 text-white border-emerald-700'
+                                  : 'bg-slate-100 text-slate-700 border-slate-200'
+                              }`}
+                            >
+                              {emp.firstName.charAt(0).toUpperCase()}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="font-bold text-[#0F172A] text-sm truncate">
+                                {fullName}
+                              </p>
+                              <p className="text-[11px] text-slate-400 font-mono font-semibold mt-0.5">
+                                #{emp.employeeCode}
+                              </p>
+                              <div className="flex items-center gap-3 mt-1 text-[11px] text-slate-500 flex-wrap">
+                                {emp.departmentName && (
+                                  <span className="flex items-center gap-1 truncate">
+                                    <Building2 className="w-3 h-3 text-slate-400 shrink-0" />
+                                    {emp.departmentName}
+                                  </span>
+                                )}
+                                {emp.teamName && (
+                                  <span className="flex items-center gap-1 truncate">
+                                    <Users className="w-3 h-3 text-slate-400 shrink-0" />
+                                    {emp.teamName}
+                                  </span>
+                                )}
+                                {emp.roleName && (
+                                  <span className="flex items-center gap-1 truncate">
+                                    <ShieldCheck className="w-3 h-3 text-slate-400 shrink-0" />
+                                    {emp.roleName}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {isSelected && (
+                            <span className="w-6 h-6 rounded-full bg-emerald-600 flex items-center justify-center text-white shrink-0">
+                              <CheckCircle2 className="w-4 h-4" />
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Selected Preview */}
+              {selectedUserId && (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3.5">
+                  <p className="text-[11px] font-bold text-emerald-700 uppercase tracking-wider mb-1">
+                    Ready to Assign
+                  </p>
+                  {(() => {
+                    const emp = allUsers.find((u) => u.id === Number(selectedUserId));
+                    if (!emp) return null;
+                    return (
+                      <p className="text-sm font-bold text-emerald-900">
+                        {emp.firstName} {emp.lastName || ''}{' '}
+                        <span className="font-normal text-emerald-700">
+                          ({emp.employeeCode})
+                        </span>{' '}
+                        → <span className="font-bold">{currentTeam?.name || `Team #${teamId}`}</span>
+                      </p>
+                    );
+                  })()}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 flex justify-end gap-2.5 shrink-0">
+              <button
+                type="button"
+                onClick={handleCloseAssignModal}
+                disabled={isAssigning}
+                className="min-h-[44px] px-5 py-2.5 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-200 transition disabled:opacity-50 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleAssignExistingEmployee}
+                disabled={isAssigning || !selectedUserId}
+                className="min-h-[44px] flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl text-sm font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition shadow-sm disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer active:scale-95"
+              >
+                {isAssigning ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Assigning...
+                  </>
+                ) : (
+                  <>
+                    <UserPlus2 className="w-4 h-4" />
+                    Assign to Team
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -1,5 +1,5 @@
 // src/features/admin/teams/AdminViewTeams.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { AppDispatch, RootState } from '../../../store';
@@ -15,12 +15,16 @@ import {
   fetchTeamById,
   fetchTeamsByDepartment,
   clearDepartmentTeams,
-  // ✅ NEW: Status filter thunk & reset
+  // ✅ Status filter thunk & reset
   fetchTeamsByStatus,
   resetStatusPagination,
   Team,
 } from '../../../store/slices/teamsSlice';
-import { fetchUsers, User } from '../../../store/slices/usersSlice';
+import {
+  fetchUsers,
+  quickAssign,
+  User,
+} from '../../../store/slices/usersSlice';
 import { fetchDepartments } from '../../../store/slices/departmentsSlice';
 import { useToast } from '../../../contexts/ToastContext';
 import {
@@ -37,7 +41,9 @@ import {
   AlertTriangle,
   Eye,
   UserPlus,
+  UserPlus2,
   FilterX,
+  Search,
 } from 'lucide-react';
 
 const AdminViewTeams: React.FC = () => {
@@ -52,12 +58,11 @@ const AdminViewTeams: React.FC = () => {
 
   // Redux state
   const {
-    list: allTeams,               // Normal list (unfiltered)
+    list: allTeams,
     loading,
     error,
     teamUsers,
     departmentTeams,
-    // ✅ NEW: status filter state
     statusFilteredTeams,
     statusTotal,
     statusPage,
@@ -65,13 +70,22 @@ const AdminViewTeams: React.FC = () => {
   } = useSelector((state: RootState) => state.teams);
 
   const { list: departments } = useSelector((state: RootState) => state.departments);
-  const { list: allUsers } = useSelector((state: RootState) => state.users);
+  const { list: allUsers, loading: usersLoading } = useSelector((state: RootState) => state.users);
 
   // Local state
   const [showTeamModal, setShowTeamModal] = useState(false);
   const [showUsersModal, setShowUsersModal] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [showAssignLeadModal, setShowAssignLeadModal] = useState(false);
+
+  // ✅ NEW: Assign Existing Employee Modal State
+  const [showAssignEmployeeModal, setShowAssignEmployeeModal] = useState(false);
+  const [assignEmployeeTeamId, setAssignEmployeeTeamId] = useState<number | null>(null);
+  const [assignEmployeeTeamName, setAssignEmployeeTeamName] = useState('');
+  const [assignEmployeeDeptId, setAssignEmployeeDeptId] = useState<number | null>(null);
+  const [selectedEmpUserId, setSelectedEmpUserId] = useState<number | ''>('');
+  const [assignEmpSearch, setAssignEmpSearch] = useState('');
+  const [isAssigningEmp, setIsAssigningEmp] = useState(false);
 
   // Form state
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
@@ -93,7 +107,7 @@ const AdminViewTeams: React.FC = () => {
   const [isAssigning, setIsAssigning] = useState(false);
   const [overrideLead, setOverrideLead] = useState<boolean>(false);
 
-  // ✅ NEW: Status filter state
+  // Status filter state
   const [showActive, setShowActive] = useState(true);
 
   // Filter & Highlight state
@@ -115,17 +129,16 @@ const AdminViewTeams: React.FC = () => {
   }, [dispatch]);
 
   // --------------------------------
-  // 2. Handle URL params (teamId / departmentId)
+  // 2. Handle URL params
   // --------------------------------
   useEffect(() => {
     const teamId = teamIdParam ? parseInt(teamIdParam, 10) : null;
     const deptId = departmentIdParam ? parseInt(departmentIdParam, 10) : null;
 
-    // Priority: If departmentId is present, filter by department
     if (deptId && !isNaN(deptId)) {
       setIsFiltered(true);
       setFilterDepartmentId(deptId);
-      dispatch(resetStatusPagination()); // Clear status filter
+      dispatch(resetStatusPagination());
       dispatch(fetchTeamsByDepartment(deptId));
       return;
     }
@@ -151,13 +164,11 @@ const AdminViewTeams: React.FC = () => {
             setIsFiltered(false);
             setHighlightTeamId(null);
             setFilterDepartmentId(null);
-            // Fallback to status filter (active)
             dispatch(resetStatusPagination());
             dispatch(fetchTeamsByStatus({ active: true, page: 0, size: 10, append: false }));
           });
       }
     } else if (!deptId) {
-      // No department filter → use status filter (default: active)
       setIsFiltered(false);
       setHighlightTeamId(null);
       setFilterDepartmentId(null);
@@ -173,7 +184,7 @@ const AdminViewTeams: React.FC = () => {
   const totalCount = isFiltered ? departmentTeams.length : statusTotal;
 
   // --------------------------------
-  // 4. Load More (infinite scroll)
+  // 4. Load More
   // --------------------------------
   const loadMore = () => {
     if (isFiltered || !statusHasMore || loading) return;
@@ -190,7 +201,6 @@ const AdminViewTeams: React.FC = () => {
   // --------------------------------
   const handleToggleFilter = (active: boolean) => {
     if (isFiltered) {
-      // If department filter is active, clear it first
       setIsFiltered(false);
       setFilterDepartmentId(null);
       setHighlightTeamId(null);
@@ -202,7 +212,7 @@ const AdminViewTeams: React.FC = () => {
   };
 
   // --------------------------------
-  // 6. Clear filter (reset to status filter)
+  // 6. Clear filter
   // --------------------------------
   const clearFilter = () => {
     setIsFiltered(false);
@@ -214,7 +224,7 @@ const AdminViewTeams: React.FC = () => {
   };
 
   // --------------------------------
-  // 7. Modal / Action Handlers (unchanged)
+  // 7. Modal / Action Handlers
   // --------------------------------
   const openCreateModal = () => {
     setModalMode('create');
@@ -251,7 +261,6 @@ const AdminViewTeams: React.FC = () => {
         await dispatch(updateTeam({ id: selectedTeam.id, name: formName.trim(), departmentId: Number(formDepartmentId) })).unwrap();
       }
       closeTeamModal();
-      // Refresh current view
       if (isFiltered && filterDepartmentId) {
         dispatch(fetchTeamsByDepartment(filterDepartmentId));
       } else {
@@ -280,7 +289,6 @@ const AdminViewTeams: React.FC = () => {
       setShowConfirmModal(false);
       setConfirmTeamId(null);
       setConfirmAction(null);
-      // Refresh current view
       if (isFiltered && filterDepartmentId) {
         dispatch(fetchTeamsByDepartment(filterDepartmentId));
       } else {
@@ -344,7 +352,6 @@ const AdminViewTeams: React.FC = () => {
       setAssignTeamId(null);
       setAssignEmployeeId('');
       setOverrideLead(false);
-      // Refresh
       if (isFiltered && filterDepartmentId) {
         dispatch(fetchTeamsByDepartment(filterDepartmentId));
       } else {
@@ -355,6 +362,105 @@ const AdminViewTeams: React.FC = () => {
       showToast(err || 'Failed to assign team lead', 'error');
     } finally {
       setIsAssigning(false);
+    }
+  };
+
+  // ============================================================
+  // ✅ NEW: Assign Existing Employee Handlers
+  // ============================================================
+  const openAssignEmployeeModal = (team: Team) => {
+    setAssignEmployeeTeamId(team.id);
+    setAssignEmployeeTeamName(team.name);
+    setAssignEmployeeDeptId(team.departmentId);
+    setSelectedEmpUserId('');
+    setAssignEmpSearch('');
+    setShowAssignEmployeeModal(true);
+
+    // Ensure all users are loaded
+    if (allUsers.length === 0) {
+      dispatch(fetchUsers());
+    }
+  };
+
+  const closeAssignEmployeeModal = () => {
+    setShowAssignEmployeeModal(false);
+    setAssignEmployeeTeamId(null);
+    setAssignEmployeeTeamName('');
+    setAssignEmployeeDeptId(null);
+    setSelectedEmpUserId('');
+    setAssignEmpSearch('');
+    setIsAssigningEmp(false);
+  };
+
+  // ✅ Filter available employees: active + not already in this team + same department
+  const availableEmployees = useMemo(() => {
+    if (!assignEmployeeTeamId) return [];
+    // Users already in this team can be identified by teamId
+    return allUsers.filter((u) => {
+      if (!u.active) return false;
+      // Exclude users already in this team
+      if (u.teamId === assignEmployeeTeamId) return false;
+      return true;
+    });
+  }, [allUsers, assignEmployeeTeamId]);
+
+  const filteredAvailableEmployees = useMemo(() => {
+    const q = assignEmpSearch.toLowerCase().trim();
+    if (!q) return availableEmployees;
+    return availableEmployees.filter(
+      (u) =>
+        `${u.firstName} ${u.lastName || ''}`.toLowerCase().includes(q) ||
+        u.employeeCode.toLowerCase().includes(q) ||
+        u.email.toLowerCase().includes(q) ||
+        (u.departmentName && u.departmentName.toLowerCase().includes(q)) ||
+        (u.teamName && u.teamName.toLowerCase().includes(q))
+    );
+  }, [availableEmployees, assignEmpSearch]);
+
+  const handleAssignExistingEmployee = async () => {
+    if (!selectedEmpUserId) {
+      showToast('Please select an employee to assign', 'warning');
+      return;
+    }
+    if (!assignEmployeeTeamId || !assignEmployeeDeptId) {
+      showToast('Team information missing. Please refresh.', 'error');
+      return;
+    }
+
+    setIsAssigningEmp(true);
+    try {
+      await dispatch(
+        quickAssign({
+          userId: Number(selectedEmpUserId),
+          data: {
+            teamId: assignEmployeeTeamId,
+            departmentId: assignEmployeeDeptId,
+          },
+        })
+      ).unwrap();
+
+      const emp = allUsers.find((u) => u.id === Number(selectedEmpUserId));
+      const empName = emp
+        ? `${emp.firstName} ${emp.lastName || ''}`.trim()
+        : 'Employee';
+
+      showToast(`${empName} assigned to ${assignEmployeeTeamName} successfully!`, 'success');
+
+      closeAssignEmployeeModal();
+
+      // Refresh views
+      if (isFiltered && filterDepartmentId) {
+        dispatch(fetchTeamsByDepartment(filterDepartmentId));
+      } else {
+        dispatch(resetStatusPagination());
+        dispatch(fetchTeamsByStatus({ active: showActive, page: 0, size: 10, append: false }));
+      }
+      // Refresh users list to reflect updated teamId
+      dispatch(fetchUsers());
+    } catch (err: any) {
+      showToast(err || 'Failed to assign employee to team', 'error');
+    } finally {
+      setIsAssigningEmp(false);
     }
   };
 
@@ -382,7 +488,6 @@ const AdminViewTeams: React.FC = () => {
           </h2>
 
           <div className="flex items-center gap-2 flex-wrap">
-            {/* ✅ NEW: Active / Inactive Toggle (only when not department-filtered) */}
             {!isFiltered && (
               <div className="flex rounded-lg overflow-hidden border border-gray-200">
                 <button
@@ -408,7 +513,6 @@ const AdminViewTeams: React.FC = () => {
               </div>
             )}
 
-            {/* Clear Filter (when department filter is active) */}
             {isFiltered && (
               <button
                 onClick={clearFilter}
@@ -458,7 +562,7 @@ const AdminViewTeams: React.FC = () => {
           ) : (
             <>
               <div className="w-full overflow-x-auto">
-                <table className="w-full text-left text-sm min-w-[700px]">
+                <table className="w-full text-left text-sm min-w-[800px]">
                   <thead className="bg-gray-50/80 sticky top-0 z-10">
                     <tr className="text-xs font-bold text-gray-400 uppercase tracking-wider">
                       <th className="p-3 rounded-tl-lg">ID</th>
@@ -515,7 +619,7 @@ const AdminViewTeams: React.FC = () => {
                               <button
                                 onClick={() => openEditModal(team)}
                                 className="p-1.5 rounded-lg hover:bg-blue-100 text-blue-600 transition"
-                                title="Edit"
+                                title="Edit Team"
                               >
                                 <Edit className="w-4 h-4" />
                               </button>
@@ -525,6 +629,14 @@ const AdminViewTeams: React.FC = () => {
                                 title="Assign Team Lead"
                               >
                                 <UserPlus className="w-4 h-4" />
+                              </button>
+                              {/* ✅ NEW: Assign Existing Employee Button */}
+                              <button
+                                onClick={() => openAssignEmployeeModal(team)}
+                                className="p-1.5 rounded-lg hover:bg-emerald-100 text-emerald-600 transition"
+                                title="Assign Existing Employee to this Team"
+                              >
+                                <UserPlus2 className="w-4 h-4" />
                               </button>
                               {team.active ? (
                                 <button
@@ -559,7 +671,6 @@ const AdminViewTeams: React.FC = () => {
                 </table>
               </div>
 
-              {/* ✅ NEW: Load More (only when status filter is active and more pages exist) */}
               {!isFiltered && statusHasMore && (
                 <div className="flex justify-center p-4">
                   <button
@@ -582,8 +693,7 @@ const AdminViewTeams: React.FC = () => {
         </div>
       </div>
 
-      {/* ======== MODALS (unchanged) ======== */}
-      {/* Create/Edit Modal */}
+      {/* ======== CREATE/EDIT MODAL ======== */}
       {showTeamModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 animate-in fade-in zoom-in-95 duration-200">
@@ -638,7 +748,7 @@ const AdminViewTeams: React.FC = () => {
         </div>
       )}
 
-      {/* Confirm Modal */}
+      {/* ======== CONFIRM MODAL ======== */}
       {showConfirmModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 animate-in fade-in zoom-in-95 duration-200">
@@ -666,7 +776,7 @@ const AdminViewTeams: React.FC = () => {
         </div>
       )}
 
-      {/* View Users Modal */}
+      {/* ======== VIEW USERS MODAL ======== */}
       {showUsersModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col p-6 animate-in fade-in zoom-in-95 duration-200">
@@ -721,7 +831,7 @@ const AdminViewTeams: React.FC = () => {
         </div>
       )}
 
-      {/* Assign Lead Modal */}
+      {/* ======== ASSIGN LEAD MODAL ======== */}
       {showAssignLeadModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 animate-in fade-in zoom-in-95 duration-200">
@@ -818,6 +928,198 @@ const AdminViewTeams: React.FC = () => {
                   <>
                     <UserCheck className="w-4 h-4" />
                     {assignEmployeeId ? 'Reassign Lead' : 'Assign Lead'}
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* ✅ NEW: ASSIGN EXISTING EMPLOYEE MODAL                        */}
+      {/* ============================================================ */}
+      {showAssignEmployeeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden border border-slate-100">
+            {/* Modal Header */}
+            <div className="bg-white px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center">
+                  <UserPlus2 className="w-5 h-5 text-emerald-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-[#1b2559]">Assign Existing Employee</h3>
+                  <p className="text-xs text-slate-500">
+                    Add an employee to{' '}
+                    <span className="font-bold text-[#5f41b2]">{assignEmployeeTeamName}</span>
+                    {assignEmployeeDeptId && (
+                      <span className="text-slate-400"> • {departments.find(d => d.id === assignEmployeeDeptId)?.name}</span>
+                    )}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={closeAssignEmployeeModal}
+                className="p-2 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition cursor-pointer"
+                disabled={isAssigningEmp}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-4 [scrollbar-width:thin]">
+              {/* Search */}
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Search employees by name, code, email or department..."
+                  value={assignEmpSearch}
+                  onChange={(e) => setAssignEmpSearch(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                  autoFocus
+                />
+              </div>
+
+              {/* Employee List */}
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                  Select Employee ({filteredAvailableEmployees.length} available)
+                </label>
+
+                {usersLoading && allUsers.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-slate-400 gap-3">
+                    <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
+                    <p className="text-sm font-semibold">Loading employees...</p>
+                  </div>
+                ) : filteredAvailableEmployees.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-slate-400 gap-2 bg-slate-50 border border-dashed border-slate-200 rounded-xl">
+                    <Users className="w-10 h-10 opacity-20" />
+                    <p className="text-sm font-semibold">
+                      {assignEmpSearch
+                        ? 'No matching employees found'
+                        : 'All active employees are already in this team'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="max-h-[380px] overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100 [scrollbar-width:thin]">
+                    {filteredAvailableEmployees.map((emp) => {
+                      const isSelected = selectedEmpUserId === emp.id;
+                      const fullName = `${emp.firstName} ${emp.lastName || ''}`.trim();
+                      return (
+                        <button
+                          type="button"
+                          key={emp.id}
+                          onClick={() => setSelectedEmpUserId(emp.id)}
+                          disabled={isAssigningEmp}
+                          className={`w-full text-left p-3.5 flex items-center justify-between gap-3 transition cursor-pointer ${
+                            isSelected
+                              ? 'bg-emerald-50 border-l-4 border-l-emerald-600'
+                              : 'hover:bg-slate-50 border-l-4 border-l-transparent'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3 min-w-0 flex-1">
+                            <div
+                              className={`w-10 h-10 rounded-[5px] flex items-center justify-center font-extrabold text-sm shrink-0 border ${
+                                isSelected
+                                  ? 'bg-emerald-600 text-white border-emerald-700'
+                                  : 'bg-slate-100 text-slate-700 border-slate-200'
+                              }`}
+                            >
+                              {emp.firstName.charAt(0).toUpperCase()}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="font-bold text-[#0F172A] text-sm truncate">
+                                {fullName}
+                              </p>
+                              <p className="text-[11px] text-slate-400 font-mono font-semibold mt-0.5">
+                                #{emp.employeeCode}
+                              </p>
+                              <div className="flex items-center gap-3 mt-1 text-[11px] text-slate-500 flex-wrap">
+                                {emp.departmentName && (
+                                  <span className="flex items-center gap-1 truncate">
+                                    <Building2 className="w-3 h-3 text-slate-400 shrink-0" />
+                                    {emp.departmentName}
+                                  </span>
+                                )}
+                                {emp.teamName && (
+                                  <span className="flex items-center gap-1 truncate">
+                                    <Users className="w-3 h-3 text-slate-400 shrink-0" />
+                                    {emp.teamName}
+                                  </span>
+                                )}
+                                {emp.roleName && (
+                                  <span className="flex items-center gap-1 truncate">
+                                    <UserCheck className="w-3 h-3 text-slate-400 shrink-0" />
+                                    {emp.roleName}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {isSelected && (
+                            <span className="w-6 h-6 rounded-full bg-emerald-600 flex items-center justify-center text-white shrink-0">
+                              <CheckCircle2 className="w-4 h-4" />
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Selected Preview */}
+              {selectedEmpUserId && (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3.5">
+                  <p className="text-[11px] font-bold text-emerald-700 uppercase tracking-wider mb-1">
+                    Ready to Assign
+                  </p>
+                  {(() => {
+                    const emp = allUsers.find((u) => u.id === Number(selectedEmpUserId));
+                    if (!emp) return null;
+                    return (
+                      <p className="text-sm font-bold text-emerald-900">
+                        {emp.firstName} {emp.lastName || ''}{' '}
+                        <span className="font-normal text-emerald-700">
+                          ({emp.employeeCode})
+                        </span>{' '}
+                        → <span className="font-bold">{assignEmployeeTeamName}</span>
+                      </p>
+                    );
+                  })()}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 flex justify-end gap-2.5 shrink-0">
+              <button
+                type="button"
+                onClick={closeAssignEmployeeModal}
+                disabled={isAssigningEmp}
+                className="min-h-[44px] px-5 py-2.5 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-200 transition disabled:opacity-50 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleAssignExistingEmployee}
+                disabled={isAssigningEmp || !selectedEmpUserId}
+                className="min-h-[44px] flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl text-sm font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition shadow-sm disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer active:scale-95"
+              >
+                {isAssigningEmp ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Assigning...
+                  </>
+                ) : (
+                  <>
+                    <UserPlus2 className="w-4 h-4" />
+                    Assign to Team
                   </>
                 )}
               </button>

@@ -20,6 +20,8 @@ import { fetchTeams } from '../../../store/slices/teamsSlice';
 import { fetchRoles } from '../../../store/slices/rolesSlice';
 import { fetchAttendancePolicies } from '../../../store/slices/attendanceSlice';
 import { useToast } from '../../../contexts/ToastContext';
+// ✅ Import Create Employee Modal
+import CreateEmployeeModal from '../resueables/CreateEmployeeModal';
 import {
   Loader2,
   Users,
@@ -43,6 +45,7 @@ import {
   Power,
   Eye,
   Filter,
+  UserPlus,
 } from 'lucide-react';
 
 // ============================================================
@@ -175,6 +178,10 @@ const AdminViewEmployees: React.FC = () => {
     active: true,
     attendancePolicyId: 0,
     workMode: 'OFFICE',
+    // ✅ CallHippo fields
+    callHippoApiToken: '',
+    callHippoFromNumber: '',
+    callHippoAgentId: '',
   });
 
   // ---------- Confirm Dialog State ----------
@@ -191,6 +198,9 @@ const AdminViewEmployees: React.FC = () => {
   const [historyEmployeeName, setHistoryEmployeeName] = useState('');
   const [historyData, setHistoryData] = useState<ActivityLogResponseDto[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+
+  // ✅ Create Employee Modal State
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
   // ---------- Report Date State ----------
   const [reportDates, setReportDates] = useState<Record<number, { from: string; to: string }>>({});
@@ -347,6 +357,7 @@ const AdminViewEmployees: React.FC = () => {
     }
   };
 
+  // ✅ UPDATED: openEditModal with CallHippo fields
   const openEditModal = (user: User) => {
     setSelectedUser(user);
     setFormData({
@@ -360,6 +371,10 @@ const AdminViewEmployees: React.FC = () => {
       active: user.active,
       attendancePolicyId: user.attendancePolicyId || 0,
       workMode: user.workMode || 'OFFICE',
+      // ✅ CallHippo fields
+      callHippoApiToken: user.callHippoApiToken || '',
+      callHippoFromNumber: user.callHippoFromNumber || '',
+      callHippoAgentId: user.callHippoAgentId || '',
     });
     setShowEditModal(true);
   };
@@ -378,16 +393,34 @@ const AdminViewEmployees: React.FC = () => {
     }));
   };
 
+  // ✅ UPDATED: handleUpdateEmployee with clean payload + CallHippo skip-empty logic
   const handleUpdateEmployee = async () => {
     if (!selectedUser) return;
     try {
-      const payload = {
-        ...formData,
+      const payload: UpdateEmployeeRequest = {
+        firstName: formData.firstName.trim(),
+        lastName: formData.lastName?.trim() || null,
+        email: formData.email.trim().toLowerCase(),
+        phone: formData.phone.trim(),
         departmentId: Number(formData.departmentId),
-        attendancePolicyId: Number(formData.attendancePolicyId),
         teamId: formData.teamId ? Number(formData.teamId) : null,
         roleId: formData.roleId ? Number(formData.roleId) : null,
+        active: Boolean(formData.active),
+        attendancePolicyId: Number(formData.attendancePolicyId),
+        workMode: formData.workMode,
       };
+
+      // ✅ CallHippo fields — only send if non-empty
+      if (formData.callHippoApiToken && formData.callHippoApiToken.trim()) {
+        payload.callHippoApiToken = formData.callHippoApiToken.trim();
+      }
+      if (formData.callHippoFromNumber && formData.callHippoFromNumber.trim()) {
+        payload.callHippoFromNumber = formData.callHippoFromNumber.trim();
+      }
+      if (formData.callHippoAgentId && formData.callHippoAgentId.trim()) {
+        payload.callHippoAgentId = formData.callHippoAgentId.trim();
+      }
+
       await dispatch(updateEmployee({ id: selectedUser.id, ...payload })).unwrap();
       showToast('Employee updated successfully!', 'success');
       closeEditModal();
@@ -494,6 +527,16 @@ const AdminViewEmployees: React.FC = () => {
 
         {/* Search & Filters */}
         <div className="flex items-center gap-3 shrink-0 flex-wrap">
+          {/* ✅ Create Employee Button */}
+          <button
+            onClick={() => setIsCreateModalOpen(true)}
+            className="flex items-center gap-2 px-3.5 py-2 bg-[#5f41b2] hover:bg-[#4d3396] text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer active:scale-95"
+            title="Create a new employee"
+          >
+            <UserPlus className="w-4 h-4" />
+            <span>Create Employee</span>
+          </button>
+
           {/* Status Filter Dropdown - Only Active/Inactive */}
           <div className="relative">
             <select
@@ -547,6 +590,12 @@ const AdminViewEmployees: React.FC = () => {
               <p className="text-sm font-semibold">
                 {searchQuery ? 'No employees matched your search' : 'No employees found'}
               </p>
+              <button
+                onClick={() => setIsCreateModalOpen(true)}
+                className="mt-2 text-xs font-bold text-[#5f41b2] hover:underline flex items-center gap-1.5 cursor-pointer"
+              >
+                <UserPlus className="w-3.5 h-3.5" /> Create first employee
+              </button>
             </div>
           ) : (
             <table className="w-full text-left text-sm min-w-[1500px] border-collapse">
@@ -805,7 +854,7 @@ const AdminViewEmployees: React.FC = () => {
         </div>
       </div>
 
-      {/* ======== MODALS (unchanged) ======== */}
+      {/* ======== EDIT MODAL ======== */}
       {showEditModal && selectedUser && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
@@ -963,6 +1012,54 @@ const AdminViewEmployees: React.FC = () => {
                     Account Active
                   </label>
                 </div>
+
+                {/* ✅ CallHippo Configuration Section */}
+                <div className="sm:col-span-2 bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3 mt-2">
+                  <div className="flex items-center gap-2 pb-2 border-b border-slate-200">
+                    <Phone className="w-4 h-4 text-[#5f41b2]" />
+                    <h3 className="text-xs font-bold text-[#1b2559]">
+                      CallHippo Configuration <span className="text-slate-400 font-normal">(Optional)</span>
+                    </h3>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">API Token</label>
+                    <input
+                      type="text"
+                      name="callHippoApiToken"
+                      value={formData.callHippoApiToken || ''}
+                      onChange={handleFormChange}
+                      placeholder="Enter CallHippo API Token"
+                      className="w-full px-3.5 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#5f41b2] focus:outline-none font-mono"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1.5">From Number</label>
+                      <input
+                        type="text"
+                        name="callHippoFromNumber"
+                        value={formData.callHippoFromNumber || ''}
+                        onChange={handleFormChange}
+                        placeholder="e.g., +1234567890"
+                        className="w-full px-3.5 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#5f41b2] focus:outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1.5">Agent ID</label>
+                      <input
+                        type="text"
+                        name="callHippoAgentId"
+                        value={formData.callHippoAgentId || ''}
+                        onChange={handleFormChange}
+                        placeholder="Enter CallHippo Agent ID"
+                        className="w-full px-3.5 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#5f41b2] focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
             <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 flex justify-end gap-2 shrink-0">
@@ -983,6 +1080,7 @@ const AdminViewEmployees: React.FC = () => {
         </div>
       )}
 
+      {/* ======== CONFIRM MODAL ======== */}
       {showConfirmModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-sm p-6">
@@ -1024,6 +1122,18 @@ const AdminViewEmployees: React.FC = () => {
         employeeName={historyEmployeeName}
         history={historyData}
         loading={historyLoading}
+      />
+
+      {/* ============================================================ */}
+      {/* ✅ Create Employee Modal                                     */}
+      {/* ============================================================ */}
+      <CreateEmployeeModal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        onSuccess={() => {
+          handleRefresh();
+          showToast('Employee list refreshed!', 'success');
+        }}
       />
     </div>
   );
