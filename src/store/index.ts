@@ -27,11 +27,11 @@ import permissionReducer from './slices/permissionSlice';
 import bulkEmployeeReducer from './slices/bulkEmployeeSlice';
 import prepReducer from './slices/prepSlice';
 import adminDocumentsReducer from './slices/adminDocumentsSlice';
-// ✅ NEW: Import events slice
 import eventsReducer from './slices/eventsSlice';
 import notificationReducer from './slices/notificationSlice';
-// ✅ NEW: Import chat slice
 import chatReducer from './slices/chatSlice';
+// ✅ NEW: Admin Chat Monitor
+import adminChatReducer from './slices/adminChatSlice';
 
 const storage = {
   getItem: (key: string) => Promise.resolve(localStorage.getItem(key)),
@@ -62,11 +62,11 @@ const rootReducer = combineReducers({
   bulkEmployee: bulkEmployeeReducer,
   prep: prepReducer,
   adminDocuments: adminDocumentsReducer,
-  // ✅ NEW: Register events reducer
   events: eventsReducer,
   notifications: notificationReducer,
-  // ✅ NEW: Register chat reducer
   chat: chatReducer,
+  // ✅ NEW
+  adminChat: adminChatReducer,
 });
 
 const persistedReducer = persistReducer(persistConfig, rootReducer);

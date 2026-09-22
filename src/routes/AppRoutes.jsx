@@ -98,6 +98,7 @@ import ChatWindow from '../features/chat/ChatWindow';
 import AdmivViewApprovedDocsClients from '../features/admin/crm/AdmivViewApprovedDocsClients';
 import AdminViewCallsByClientID from '../features/admin/crm/AdminViewCallsByClientID';   // ✅ NEW
 import AdminViewCallHistoryWithcliendEmpID from '../features/admin/crm/AdminViewCallHistoryWithcliendEmpID';
+import AdminChatMonitor from '../features/admin/chat/AdminChatMonitor';
 
 const AppRoutes = () => {
   return (
@@ -224,6 +225,7 @@ const AppRoutes = () => {
 <Route path="/admin/crm/view-call-log/:clientID/:empID" element={<AdminViewCallHistoryWithcliendEmpID />} />
         <Route path="/admin/crm/view-docs-approved-clients" element={< AdmivViewApprovedDocsClients/>} />
         <Route path="/view/notifications" element={< Notifications/>} />
+        <Route path="/admin/view-chats" element={<AdminChatMonitor />} />
 
       </Route>
       
