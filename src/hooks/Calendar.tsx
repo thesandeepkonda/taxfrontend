@@ -13,8 +13,8 @@ import {
   CalendarEvent,
 } from '../store/slices/eventsSlice';
 import { fetchUsers } from '../store/slices/usersSlice';
-import { fetchDepartments, Department } from '../store/slices/departmentsSlice';
 import { fetchTeams, fetchTeamsByDepartment, Team } from '../store/slices/teamsSlice';
+import { DEPARTMENT_OPTIONS, DepartmentEnum } from '../constants/enums';
 import {
   X,
   RotateCcw,
@@ -23,7 +23,6 @@ import {
   ChevronDown,
   Clock,
   CalendarDays,
-  MapPin,
   Plus,
   Edit,
   Trash2,
@@ -47,10 +46,14 @@ interface EventModalProps {
   loading: boolean;
 }
 
-const EventModal: React.FC<EventModalProps> = ({ isOpen, onClose, initialData, onSave, loading }) => {
+const EventModal: React.FC<EventModalProps> = ({
+  isOpen,
+  onClose,
+  initialData,
+  onSave,
+  loading,
+}) => {
   const dispatch = useDispatch<AppDispatch>();
-
-  const departments = useSelector((state: RootState) => state.departments?.list || []);
   const users = useSelector((state: RootState) => state.users?.list || []);
 
   const [allDepartmentTeams, setAllDepartmentTeams] = useState<Team[]>([]);
@@ -61,7 +64,7 @@ const EventModal: React.FC<EventModalProps> = ({ isOpen, onClose, initialData, o
   const [startTime, setStartTime] = useState('');
   const [endTime, setEndTime] = useState('');
   const [targetType, setTargetType] = useState<'INDIVIDUAL' | 'TEAM' | 'DEPARTMENT' | 'ALL'>('ALL');
-  const [targetId, setTargetId] = useState<number | null>(null);
+  const [targetId, setTargetId] = useState<number | string | null>(null);
   const [meetingLink, setMeetingLink] = useState('');
 
   useEffect(() => {
@@ -71,7 +74,7 @@ const EventModal: React.FC<EventModalProps> = ({ isOpen, onClose, initialData, o
       setStartTime(initialData.startTime ? initialData.startTime.slice(0, 16) : '');
       setEndTime(initialData.endTime ? initialData.endTime.slice(0, 16) : '');
       setTargetType(initialData.targetType);
-      setTargetId(initialData.targetId);
+      setTargetId((initialData as any).targetId ?? null);
       setMeetingLink(initialData.meetingLink || '');
     } else {
       setTitle('');
@@ -84,6 +87,9 @@ const EventModal: React.FC<EventModalProps> = ({ isOpen, onClose, initialData, o
     }
   }, [initialData, isOpen]);
 
+  // ============================================================
+  // Load target data based on targetType
+  // ============================================================
   useEffect(() => {
     if (!isOpen) return;
 
@@ -93,38 +99,32 @@ const EventModal: React.FC<EventModalProps> = ({ isOpen, onClose, initialData, o
         dispatch(fetchUsers()).finally(() => setIsFetchingTargetData(false));
       }
     } else if (targetType === 'DEPARTMENT') {
-      if (departments.length === 0) {
-        setIsFetchingTargetData(true);
-        dispatch(fetchDepartments()).finally(() => setIsFetchingTargetData(false));
-      }
+      // ✅ Departments are now static enums — no API fetch needed
+      setIsFetchingTargetData(false);
     } else if (targetType === 'TEAM') {
+      // ✅ Fetch teams by department ENUM string (not ID)
       const loadAllTeamsAcrossDepartments = async () => {
         setIsFetchingTargetData(true);
         try {
-          let currentDepts = departments;
-          if (currentDepts.length === 0) {
-            const deptsAction = await dispatch(fetchDepartments()).unwrap();
-            currentDepts = deptsAction || [];
-          }
-
-          const teamPromises = currentDepts.map((dept: Department) =>
-            dispatch(fetchTeamsByDepartment(dept.id))
+          const teamPromises = DEPARTMENT_OPTIONS.map((dept) =>
+            dispatch(fetchTeamsByDepartment(dept.value)) // ✅ enum string
               .unwrap()
               .catch(() => [])
           );
           const teamsResults = await Promise.all(teamPromises);
-          const flatTeams = teamsResults.flat();
+          let allCombined: any[] = teamsResults.flat();
 
-          let allCombined = flatTeams;
+          // Fallback: if per-department returns nothing, try all-teams
           if (allCombined.length === 0) {
             try {
               const allTeamsDirect = await dispatch(fetchTeams()).unwrap();
               allCombined = allTeamsDirect || [];
             } catch (e) {
-              // Ignore
+              // ignore
             }
           }
 
+          // Dedupe teams by id
           const uniqueTeamsMap = new Map<number, Team>();
           allCombined.forEach((team: any) => {
             if (team) {
@@ -133,8 +133,8 @@ const EventModal: React.FC<EventModalProps> = ({ isOpen, onClose, initialData, o
                 uniqueTeamsMap.set(teamIdNum, {
                   id: teamIdNum,
                   name: team.name,
-                  departmentId: team.departmentId,
-                  departmentName: team.departmentName,
+                  department: team.department,
+                  departmentName: team.department || team.departmentName,
                   teamLeadId: team.teamLeadId ?? null,
                   teamLeadName: team.teamLeadName ?? null,
                   active: team.active ?? true,
@@ -153,7 +153,7 @@ const EventModal: React.FC<EventModalProps> = ({ isOpen, onClose, initialData, o
 
       loadAllTeamsAcrossDepartments();
     }
-  }, [targetType, isOpen, dispatch, departments.length, users.length]);
+  }, [targetType, isOpen, dispatch, users.length]);
 
   if (!isOpen) return null;
 
@@ -163,17 +163,42 @@ const EventModal: React.FC<EventModalProps> = ({ isOpen, onClose, initialData, o
       alert('Please fill in all required fields.');
       return;
     }
-    if (targetType !== 'ALL' && !targetId) {
+    if (targetType !== 'ALL' && (targetId === null || targetId === '')) {
       alert(`Please select a ${targetType.toLowerCase()} from the dropdown.`);
       return;
     }
-    onSave({ title, description, startTime, endTime, targetType, targetId, meetingLink });
+
+    // ✅ Payload build — department uses enum string
+    const payload: any = {
+      title,
+      description,
+      startTime,
+      endTime,
+      targetType,
+      meetingLink,
+    };
+
+    if (targetType === 'DEPARTMENT') {
+      payload.targetDepartment = targetId;   // enum string
+      payload.targetId = null;
+    } else if (targetType === 'ALL') {
+      payload.targetId = null;
+      payload.targetDepartment = null;
+    } else {
+      payload.targetId = Number(targetId);   // INDIVIDUAL or TEAM → number
+      payload.targetDepartment = null;
+    }
+
+    onSave(payload);
   };
 
+  // ============================================================
+  // Target Dropdown — with ENUM support
+  // ============================================================
   const renderTargetDropdown = () => {
     if (targetType === 'ALL') return null;
 
-    let options: { id: number; label: string }[] = [];
+    let options: { id: number | string; label: string }[] = [];
     let label = 'Target';
     let placeholder = 'Select...';
 
@@ -184,7 +209,9 @@ const EventModal: React.FC<EventModalProps> = ({ isOpen, onClose, initialData, o
         const uid = Number(u.id ?? u.userId);
         return {
           id: uid,
-          label: `${u.firstName} ${u.lastName || ''} (${u.employeeCode}) ${u.departmentName ? `• ${u.departmentName}` : ''}`,
+          label: `${u.firstName} ${u.lastName || ''} (${u.employeeCode}) ${
+            u.departmentName ? `• ${u.departmentName}` : ''
+          }`,
         };
       });
     } else if (targetType === 'TEAM') {
@@ -192,16 +219,29 @@ const EventModal: React.FC<EventModalProps> = ({ isOpen, onClose, initialData, o
       placeholder = '-- Choose a team --';
       options = allDepartmentTeams.map((t) => ({
         id: t.id,
-        label: `${t.name} (${t.departmentName || 'No Dept'})`,
+        label: `${t.name} (${t.departmentName || t.department || 'No Dept'})`,
       }));
     } else if (targetType === 'DEPARTMENT') {
+      // ✅ Enum-based dropdown
       label = 'Select Department';
       placeholder = '-- Choose a department --';
-      options = departments.map((d) => ({
-        id: d.id,
-        label: d.name,
+      options = DEPARTMENT_OPTIONS.map((d) => ({
+        id: d.value,       // enum string
+        label: d.label,
       }));
     }
+
+    const handleChange = (raw: string) => {
+      if (!raw) {
+        setTargetId(null);
+        return;
+      }
+      if (targetType === 'DEPARTMENT') {
+        setTargetId(raw);                // ✅ keep as enum string
+      } else {
+        setTargetId(Number(raw));        // ✅ numeric for INDIVIDUAL / TEAM
+      }
+    };
 
     return (
       <div>
@@ -216,21 +256,23 @@ const EventModal: React.FC<EventModalProps> = ({ isOpen, onClose, initialData, o
           )}
         </label>
         <select
-          value={targetId || ''}
-          onChange={(e) => setTargetId(e.target.value ? Number(e.target.value) : null)}
+          value={targetId !== null ? String(targetId) : ''}
+          onChange={(e) => handleChange(e.target.value)}
           className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#5f41b2] text-sm bg-white font-medium text-slate-700"
           disabled={loading || isFetchingTargetData}
           required
         >
           <option value="">{placeholder}</option>
           {options.map((opt) => (
-            <option key={opt.id} value={opt.id}>
+            <option key={String(opt.id)} value={String(opt.id)}>
               {opt.label}
             </option>
           ))}
         </select>
         {!isFetchingTargetData && options.length === 0 && (
-          <p className="text-[11px] text-amber-600 mt-1">No records available for this category.</p>
+          <p className="text-[11px] text-amber-600 mt-1">
+            No records available for this category.
+          </p>
         )}
       </div>
     );
@@ -333,7 +375,9 @@ const EventModal: React.FC<EventModalProps> = ({ isOpen, onClose, initialData, o
           {renderTargetDropdown()}
 
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">Meeting Link (Optional)</label>
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              Meeting Link (Optional)
+            </label>
             <input
               type="url"
               value={meetingLink}
@@ -358,7 +402,11 @@ const EventModal: React.FC<EventModalProps> = ({ isOpen, onClose, initialData, o
               disabled={loading || isFetchingTargetData}
               className="px-5 py-2 flex items-center gap-2 text-xs font-bold bg-[#5f41b2] hover:bg-[#4e3596] text-white rounded-xl transition shadow-sm disabled:opacity-50 cursor-pointer active:scale-95"
             >
-              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+              {loading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Check className="w-4 h-4" />
+              )}
               {initialData ? 'Update Event' : 'Create Event'}
             </button>
           </div>
@@ -387,24 +435,30 @@ const Calendar: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
   const isAdmin = user?.role === 'ADMIN';
   const displayEvents = isAdmin ? allEvents : myEvents;
 
-  // Modal States
   const [modalOpen, setModalOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
   const [modalLoading, setModalLoading] = useState(false);
 
-  // Active hover day state for persistent interactive popups
   const [hoveredDay, setHoveredDay] = useState<number | null>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Calendar State
   const today = new Date();
   const [selectedDate, setSelectedDate] = useState<Date>(today);
-  const [viewMonth, setViewMonth] = useState<Date>(new Date(today.getFullYear(), today.getMonth(), 1));
+  const [viewMonth, setViewMonth] = useState<Date>(
+    new Date(today.getFullYear(), today.getMonth(), 1)
+  );
   const [showMonthDropdown, setShowMonthDropdown] = useState<boolean>(false);
 
   useEffect(() => {
     const startOfMonth = new Date(viewMonth.getFullYear(), viewMonth.getMonth(), 1);
-    const endOfMonth = new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 0, 23, 59, 59);
+    const endOfMonth = new Date(
+      viewMonth.getFullYear(),
+      viewMonth.getMonth() + 1,
+      0,
+      23,
+      59,
+      59
+    );
     const fromISO = startOfMonth.toISOString();
     const toISO = endOfMonth.toISOString();
 
@@ -456,7 +510,6 @@ const Calendar: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
   for (let d = 1; d <= totalDaysInMonth; d++) fullCalendarDays.push(d);
   while (fullCalendarDays.length % 7 !== 0) fullCalendarDays.push(null);
 
-  // Group events by Day of Month
   const eventsByDayMap = new Map<number, CalendarEvent[]>();
   displayEvents.forEach((ev) => {
     if (ev?.startTime) {
@@ -502,7 +555,14 @@ const Calendar: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
   const handleMonthSelect = (monthIndex: number) => {
     setViewMonth(new Date(currentYear, monthIndex, 1));
     setSelectedDate(
-      new Date(currentYear, monthIndex, Math.min(selectedDate.getDate(), new Date(currentYear, monthIndex + 1, 0).getDate()))
+      new Date(
+        currentYear,
+        monthIndex,
+        Math.min(
+          selectedDate.getDate(),
+          new Date(currentYear, monthIndex + 1, 0).getDate()
+        )
+      )
     );
     setShowMonthDropdown(false);
   };
@@ -512,7 +572,6 @@ const Calendar: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
     setViewMonth(new Date(year, viewMonth.getMonth(), 1));
   };
 
-  // ----- Event Handlers (Admin Only) -----
   const handleCreateEvent = async (data: any) => {
     setModalLoading(true);
     try {
@@ -587,7 +646,6 @@ const Calendar: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
 
   return (
     <div className="w-full h-full bg-slate-50 rounded-2xl shadow-xl flex flex-col overflow-hidden border border-slate-200 font-sans select-none relative">
-      {/* Header */}
       <header className="flex items-center justify-between px-4 py-3 sm:px-6 sm:py-4 bg-white border-b border-slate-200 shrink-0 z-20">
         <div className="flex items-center gap-2">
           <CalendarDays className="w-5 h-5 text-[#5f41b2]" />
@@ -635,14 +693,15 @@ const Calendar: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
         </div>
       </header>
 
-      {/* Main Grid */}
       <div className="flex-1 p-3.5 sm:p-6 lg:p-8 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 max-w-7xl mx-auto items-start">
-          {/* COLUMN 1: UPCOMING & RECENT EVENTS LIST */}
+          {/* COLUMN 1: EVENTS LIST */}
           <div className="w-full bg-white rounded-2xl shadow-xs border border-slate-200 overflow-hidden flex flex-col">
             <div className="bg-[#5f41b2] p-4 text-white flex justify-between items-center">
               <div>
-                <p className="text-[10px] font-bold tracking-wider uppercase opacity-80">Workspace Activity</p>
+                <p className="text-[10px] font-bold tracking-wider uppercase opacity-80">
+                  Workspace Activity
+                </p>
                 <h3 className="text-xl font-bold tracking-tight">Upcoming Events</h3>
               </div>
               <span className="text-xs bg-white/20 px-2.5 py-1 rounded-full font-semibold">
@@ -682,7 +741,9 @@ const Calendar: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
                         </span>
                       </div>
                       {event.description && (
-                        <p className="text-xs text-slate-500 mt-1 line-clamp-2">{event.description}</p>
+                        <p className="text-xs text-slate-500 mt-1 line-clamp-2">
+                          {event.description}
+                        </p>
                       )}
                       <div className="flex items-center justify-between text-[11px] opacity-80 mt-2 text-slate-600">
                         <span className="flex items-center gap-1">
@@ -706,11 +767,14 @@ const Calendar: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
                       </div>
                       {event.targetType !== 'ALL' && (
                         <div className="mt-1.5 text-[10px] font-bold text-[#5f41b2] bg-purple-50 px-2 py-0.5 rounded w-max">
-                          Target: {event.targetType} {event.targetId ? `#${event.targetId}` : ''}
+                          Target: {event.targetType}{' '}
+                          {(event as any).targetId ? `#${(event as any).targetId}` : ''}
+                          {(event as any).targetDepartment
+                            ? `#${(event as any).targetDepartment}`
+                            : ''}
                         </div>
                       )}
 
-                      {/* Admin Actions Overlay (EDIT DISABLED ON COMPLETED EVENTS) */}
                       {isAdmin && (
                         <div className="absolute top-2.5 right-2.5 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
                           {!isCompleted && (
@@ -738,10 +802,12 @@ const Calendar: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
             </div>
           </div>
 
-          {/* COLUMN 2: CALENDAR GRID & YEAR SELECTOR */}
+          {/* COLUMN 2: CALENDAR GRID */}
           <div className="w-full flex flex-col gap-4">
             <div className="bg-white rounded-2xl shadow-xs border border-slate-200 p-3.5 sm:p-4">
-              <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Select Year</p>
+              <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                Select Year
+              </p>
               <div className="h-28 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden pr-1">
                 <div className="grid grid-cols-4 sm:grid-cols-5 gap-1.5 text-center text-xs">
                   {Array.from({ length: 101 }, (_, i) => 1980 + i).map((year) => (
@@ -836,7 +902,6 @@ const Calendar: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
 
                   const dayEvents = eventsByDayMap.get(day) || [];
 
-                  // Categorize events
                   const upcomingEvents = dayEvents.filter(
                     (ev) => new Date(ev.endTime || ev.startTime) > currentTime
                   );
@@ -869,7 +934,6 @@ const Calendar: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
                       >
                         <span>{day}</span>
 
-                        {/* Upcoming Event -> Blinking RED Dot */}
                         {hasUpcoming && (
                           <span className="absolute bottom-1 left-1/2 -translate-x-1/2 flex h-1.5 w-1.5 pointer-events-none">
                             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-80"></span>
@@ -877,7 +941,6 @@ const Calendar: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
                           </span>
                         )}
 
-                        {/* Completed Event -> Solid BLUE Dot */}
                         {hasOnlyCompleted && (
                           <span className="absolute bottom-1 left-1/2 -translate-x-1/2 flex h-1.5 w-1.5 pointer-events-none">
                             <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-blue-600"></span>
@@ -885,7 +948,6 @@ const Calendar: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
                         )}
                       </button>
 
-                      {/* Modal Box Style Hover Popup with Active Bridge & Clickable Links */}
                       {isPopupActive && (
                         <div
                           onMouseEnter={() => handleMouseEnterDay(day)}
@@ -957,7 +1019,6 @@ const Calendar: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
                                       {formatEventTime(ev)}
                                     </span>
 
-                                    {/* Clickable Meeting Link */}
                                     {ev.meetingLink && (
                                       <a
                                         href={ev.meetingLink}
@@ -977,7 +1038,6 @@ const Calendar: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
                             })}
                           </div>
 
-                          {/* Invisible hover bridge & visible pointer arrow */}
                           <div className="absolute top-full left-0 right-0 h-3 bg-transparent pointer-events-auto" />
                           <div
                             className={`absolute top-full -mt-1 w-2.5 h-2.5 bg-white border-r border-b border-slate-200/90 rotate-45 ${
@@ -1006,7 +1066,9 @@ const Calendar: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
           {/* COLUMN 3: LIVE CLOCK */}
           <div className="w-full bg-white rounded-2xl shadow-xs border border-slate-200 p-4 sm:p-6 flex flex-col justify-between">
             <div className="flex items-center justify-between mb-4">
-              <span className="text-[10px] font-bold tracking-wider uppercase text-slate-400">Current Time</span>
+              <span className="text-[10px] font-bold tracking-wider uppercase text-slate-400">
+                Current Time
+              </span>
               <Clock className="w-4 h-4 text-slate-400" />
             </div>
             <div className="flex items-center justify-between mb-6">
@@ -1024,8 +1086,12 @@ const Calendar: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
                 </div>
               </div>
               <div className="border border-slate-200 rounded-xl overflow-hidden flex flex-col text-[10px] font-bold">
-                <span className={`px-2.5 py-1.5 ${isAM ? 'bg-[#5f41b2] text-white' : 'text-slate-400'}`}>AM</span>
-                <span className={`px-2.5 py-1.5 ${!isAM ? 'bg-[#5f41b2] text-white' : 'text-slate-400'}`}>PM</span>
+                <span className={`px-2.5 py-1.5 ${isAM ? 'bg-[#5f41b2] text-white' : 'text-slate-400'}`}>
+                  AM
+                </span>
+                <span className={`px-2.5 py-1.5 ${!isAM ? 'bg-[#5f41b2] text-white' : 'text-slate-400'}`}>
+                  PM
+                </span>
               </div>
             </div>
             <div
@@ -1069,7 +1135,10 @@ const Calendar: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
                 className="absolute w-[1.5px] h-[72px] bg-rose-500 origin-bottom bottom-1/2 left-[calc(50%-0.75px)] z-10"
                 style={{
                   transform: `rotate(${secondDeg}deg)`,
-                  transition: secondDeg === 0 ? 'none' : 'transform 0.15s cubic-bezier(0.4, 2.08, 0.55, 0.44)',
+                  transition:
+                    secondDeg === 0
+                      ? 'none'
+                      : 'transform 0.15s cubic-bezier(0.4, 2.08, 0.55, 0.44)',
                 }}
               />
             </div>
@@ -1077,7 +1146,6 @@ const Calendar: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
         </div>
       </div>
 
-      {/* Event Modal */}
       <EventModal
         isOpen={modalOpen}
         onClose={() => {

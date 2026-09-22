@@ -5,7 +5,7 @@ import api from '../../services/api';
 export interface Team {
   id: number;
   name: string;
-  departmentId: number;
+  department: string;                 // ✅ enum
   departmentName: string;
   teamLeadId: number | null;
   teamLeadName: string | null;
@@ -19,7 +19,7 @@ export interface TeamUser {
   lastName: string;
   email: string;
   phone: string;
-  departmentId: number | null;
+  department: string | null;
   departmentName: string | null;
   teamId: number | null;
   teamName: string | null;
@@ -28,15 +28,11 @@ export interface TeamUser {
   active: boolean;
 }
 
-// ============================================================
-// NEW: Status filter state (with infinite scroll support)
-// ============================================================
 interface TeamsState {
   list: Team[];
   currentTeam: Team | null;
   departmentTeams: Team[];
   teamUsers: TeamUser[];
-  // ✅ Status filter state
   statusFilteredTeams: Team[];
   statusTotal: number;
   statusPage: number;
@@ -60,20 +56,15 @@ const initialState: TeamsState = {
   error: null,
 };
 
-// Helper to map API team object to Team interface
 const mapTeam = (apiTeam: any): Team => ({
   id: apiTeam.teamId,
   name: apiTeam.name,
-  departmentId: apiTeam.departmentId,
-  departmentName: apiTeam.departmentName,
+  department: apiTeam.department,
+  departmentName: apiTeam.department || '—',
   teamLeadId: apiTeam.teamLeadId ?? null,
   teamLeadName: apiTeam.teamLeadName ?? null,
   active: apiTeam.active,
 });
-
-// ------------------------------
-// EXISTING THUNKS
-// ------------------------------
 
 export const fetchTeams = createAsyncThunk(
   'teams/fetchAll',
@@ -89,9 +80,9 @@ export const fetchTeams = createAsyncThunk(
 
 export const fetchTeamsByDepartment = createAsyncThunk(
   'teams/fetchByDepartment',
-  async (departmentId: number, { rejectWithValue }) => {
+  async (department: string, { rejectWithValue }) => {
     try {
-      const response = await api.get(`/teams/department/${departmentId}`);
+      const response = await api.get(`/teams/department/${department}`);
       return response.data;
     } catch (error: any) {
       return rejectWithValue(error.response?.data?.message || 'Failed to fetch teams by department');
@@ -101,7 +92,7 @@ export const fetchTeamsByDepartment = createAsyncThunk(
 
 export const createTeam = createAsyncThunk(
   'teams/create',
-  async (teamData: { name: string; departmentId: number }, { rejectWithValue }) => {
+  async (teamData: { name: string; department: string }, { rejectWithValue }) => {
     try {
       const response = await api.post('/teams', teamData);
       return response.data;
@@ -125,9 +116,12 @@ export const fetchTeamById = createAsyncThunk(
 
 export const updateTeam = createAsyncThunk(
   'teams/update',
-  async ({ id, name, departmentId }: { id: number; name: string; departmentId: number }, { rejectWithValue }) => {
+  async (
+    { id, name, department }: { id: number; name: string; department: string },
+    { rejectWithValue }
+  ) => {
     try {
-      const response = await api.put(`/teams/${id}`, { name, departmentId });
+      const response = await api.put(`/teams/${id}`, { name, department });
       return response.data;
     } catch (error: any) {
       return rejectWithValue(error.response?.data?.message || 'Failed to update team');
@@ -178,7 +172,9 @@ export const assignTeamLead = createAsyncThunk(
     { rejectWithValue }
   ) => {
     try {
-      const response = await api.patch(`/teams/${teamId}/assign-lead/${employeeId}?override=${override}`);
+      const response = await api.patch(
+        `/teams/${teamId}/assign-lead/${employeeId}?override=${override}`
+      );
       return response.data;
     } catch (error: any) {
       return rejectWithValue(error.response?.data?.message || 'Failed to assign team lead');
@@ -186,14 +182,14 @@ export const assignTeamLead = createAsyncThunk(
   }
 );
 
-// ============================================================
-// ✅ NEW: FETCH TEAMS BY STATUS (PAGINATED)
-// ============================================================
 export const fetchTeamsByStatus = createAsyncThunk(
   'teams/fetchByStatus',
-  async ({ active, page = 0, size = 20, append = false }: 
-    { active: boolean; page?: number; size?: number; append?: boolean }, 
-    { rejectWithValue }) => {
+  async (
+    { active, page = 0, size = 20, append = false }: {
+      active: boolean; page?: number; size?: number; append?: boolean;
+    },
+    { rejectWithValue }
+  ) => {
     try {
       const response = await api.get('/teams/status', { params: { active, page, size } });
       return { active, data: response.data, append };
@@ -203,9 +199,6 @@ export const fetchTeamsByStatus = createAsyncThunk(
   }
 );
 
-// ------------------------------
-// SLICE
-// ------------------------------
 const teamsSlice = createSlice({
   name: 'teams',
   initialState,
@@ -222,16 +215,9 @@ const teamsSlice = createSlice({
       state.statusHasMore = true;
       state.error = null;
     },
-    clearError: (state) => {
-      state.error = null;
-    },
-    clearDepartmentTeams: (state) => {
-      state.departmentTeams = [];
-    },
-    clearTeamUsers: (state) => {
-      state.teamUsers = [];
-    },
-    // ✅ New reducers for status filter
+    clearError: (state) => { state.error = null; },
+    clearDepartmentTeams: (state) => { state.departmentTeams = []; },
+    clearTeamUsers: (state) => { state.teamUsers = []; },
     clearStatusFilteredTeams: (state) => {
       state.statusFilteredTeams = [];
       state.statusTotal = 0;
@@ -248,11 +234,7 @@ const teamsSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
-      // ---------- EXISTING REDUCERS ----------
-      .addCase(fetchTeams.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
+      .addCase(fetchTeams.pending, (state) => { state.loading = true; state.error = null; })
       .addCase(fetchTeams.fulfilled, (state, action: PayloadAction<any[]>) => {
         state.loading = false;
         state.list = action.payload.map(mapTeam);
@@ -261,11 +243,7 @@ const teamsSlice = createSlice({
         state.loading = false;
         state.error = action.payload as string;
       })
-
-      .addCase(fetchTeamsByDepartment.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
+      .addCase(fetchTeamsByDepartment.pending, (state) => { state.loading = true; state.error = null; })
       .addCase(fetchTeamsByDepartment.fulfilled, (state, action: PayloadAction<any[]>) => {
         state.loading = false;
         state.departmentTeams = action.payload.map(mapTeam);
@@ -274,11 +252,7 @@ const teamsSlice = createSlice({
         state.loading = false;
         state.error = action.payload as string;
       })
-
-      .addCase(createTeam.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
+      .addCase(createTeam.pending, (state) => { state.loading = true; state.error = null; })
       .addCase(createTeam.fulfilled, (state, action: PayloadAction<any>) => {
         state.loading = false;
         const newTeam = mapTeam(action.payload);
@@ -289,11 +263,7 @@ const teamsSlice = createSlice({
         state.loading = false;
         state.error = action.payload as string;
       })
-
-      .addCase(fetchTeamById.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
+      .addCase(fetchTeamById.pending, (state) => { state.loading = true; state.error = null; })
       .addCase(fetchTeamById.fulfilled, (state, action: PayloadAction<any>) => {
         state.loading = false;
         state.currentTeam = mapTeam(action.payload);
@@ -302,78 +272,55 @@ const teamsSlice = createSlice({
         state.loading = false;
         state.error = action.payload as string;
       })
-
-      .addCase(updateTeam.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
+      .addCase(updateTeam.pending, (state) => { state.loading = true; state.error = null; })
       .addCase(updateTeam.fulfilled, (state, action: PayloadAction<any>) => {
         state.loading = false;
         const updated = mapTeam(action.payload);
-        const index = state.list.findIndex(t => t.id === updated.id);
+        const index = state.list.findIndex((t) => t.id === updated.id);
         if (index !== -1) state.list[index] = updated;
-        const deptIndex = state.departmentTeams.findIndex(t => t.id === updated.id);
+        const deptIndex = state.departmentTeams.findIndex((t) => t.id === updated.id);
         if (deptIndex !== -1) state.departmentTeams[deptIndex] = updated;
-        if (state.currentTeam?.id === updated.id) {
-          state.currentTeam = updated;
-        }
-        // Update statusFilteredTeams
-        const statusIdx = state.statusFilteredTeams.findIndex(t => t.id === updated.id);
+        if (state.currentTeam?.id === updated.id) state.currentTeam = updated;
+        const statusIdx = state.statusFilteredTeams.findIndex((t) => t.id === updated.id);
         if (statusIdx !== -1) state.statusFilteredTeams[statusIdx] = updated;
       })
       .addCase(updateTeam.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload as string;
       })
-
-      .addCase(deactivateTeam.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
+      .addCase(deactivateTeam.pending, (state) => { state.loading = true; state.error = null; })
       .addCase(deactivateTeam.fulfilled, (state, action: PayloadAction<number>) => {
         state.loading = false;
         const id = action.payload;
-        const team = state.list.find(t => t.id === id);
+        const team = state.list.find((t) => t.id === id);
         if (team) team.active = false;
-        const deptTeam = state.departmentTeams.find(t => t.id === id);
+        const deptTeam = state.departmentTeams.find((t) => t.id === id);
         if (deptTeam) deptTeam.active = false;
-        if (state.currentTeam?.id === id) {
-          state.currentTeam.active = false;
-        }
-        const statusTeam = state.statusFilteredTeams.find(t => t.id === id);
+        if (state.currentTeam?.id === id) state.currentTeam.active = false;
+        const statusTeam = state.statusFilteredTeams.find((t) => t.id === id);
         if (statusTeam) statusTeam.active = false;
       })
       .addCase(deactivateTeam.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload as string;
       })
-
-      .addCase(activateTeam.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
+      .addCase(activateTeam.pending, (state) => { state.loading = true; state.error = null; })
       .addCase(activateTeam.fulfilled, (state, action: PayloadAction<number>) => {
         state.loading = false;
         const id = action.payload;
-        const team = state.list.find(t => t.id === id);
+        const team = state.list.find((t) => t.id === id);
         if (team) team.active = true;
-        const deptTeam = state.departmentTeams.find(t => t.id === id);
+        const deptTeam = state.departmentTeams.find((t) => t.id === id);
         if (deptTeam) deptTeam.active = true;
-        if (state.currentTeam?.id === id) {
-          state.currentTeam.active = true;
-        }
-        const statusTeam = state.statusFilteredTeams.find(t => t.id === id);
+        if (state.currentTeam?.id === id) state.currentTeam.active = true;
+        const statusTeam = state.statusFilteredTeams.find((t) => t.id === id);
         if (statusTeam) statusTeam.active = true;
       })
       .addCase(activateTeam.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload as string;
       })
-
-      .addCase(fetchUsersByTeam.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
+      .addCase(fetchUsersByTeam.pending, (state) => { state.loading = true; state.error = null; })
       .addCase(fetchUsersByTeam.fulfilled, (state, action: PayloadAction<TeamUser[]>) => {
         state.loading = false;
         state.teamUsers = action.payload;
@@ -382,34 +329,23 @@ const teamsSlice = createSlice({
         state.loading = false;
         state.error = action.payload as string;
       })
-
-      .addCase(assignTeamLead.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
+      .addCase(assignTeamLead.pending, (state) => { state.loading = true; state.error = null; })
       .addCase(assignTeamLead.fulfilled, (state, action: PayloadAction<any>) => {
         state.loading = false;
         const updatedTeam = mapTeam(action.payload);
-        const index = state.list.findIndex(t => t.id === updatedTeam.id);
+        const index = state.list.findIndex((t) => t.id === updatedTeam.id);
         if (index !== -1) state.list[index] = updatedTeam;
-        const deptIndex = state.departmentTeams.findIndex(t => t.id === updatedTeam.id);
+        const deptIndex = state.departmentTeams.findIndex((t) => t.id === updatedTeam.id);
         if (deptIndex !== -1) state.departmentTeams[deptIndex] = updatedTeam;
-        if (state.currentTeam?.id === updatedTeam.id) {
-          state.currentTeam = updatedTeam;
-        }
-        const statusIdx = state.statusFilteredTeams.findIndex(t => t.id === updatedTeam.id);
+        if (state.currentTeam?.id === updatedTeam.id) state.currentTeam = updatedTeam;
+        const statusIdx = state.statusFilteredTeams.findIndex((t) => t.id === updatedTeam.id);
         if (statusIdx !== -1) state.statusFilteredTeams[statusIdx] = updatedTeam;
       })
       .addCase(assignTeamLead.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload as string;
       })
-
-      // ---------- ✅ NEW: fetchTeamsByStatus ----------
-      .addCase(fetchTeamsByStatus.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
+      .addCase(fetchTeamsByStatus.pending, (state) => { state.loading = true; state.error = null; })
       .addCase(fetchTeamsByStatus.fulfilled, (state, action: PayloadAction<{ active: boolean; data: any; append: boolean }>) => {
         state.loading = false;
         const pageData = action.payload.data;
@@ -437,5 +373,13 @@ const teamsSlice = createSlice({
   },
 });
 
-export const { clearTeams, clearError, clearDepartmentTeams, clearTeamUsers, clearStatusFilteredTeams, resetStatusPagination } = teamsSlice.actions;
+export const {
+  clearTeams,
+  clearError,
+  clearDepartmentTeams,
+  clearTeamUsers,
+  clearStatusFilteredTeams,
+  resetStatusPagination,
+} = teamsSlice.actions;
+
 export default teamsSlice.reducer;

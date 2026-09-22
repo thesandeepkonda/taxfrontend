@@ -1,11 +1,7 @@
 // src/store/slices/usersSlice.ts
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
-import api from '../../services/api';
-import { apiDev1 } from '../../services/api';
+import api, { apiDev1 } from '../../services/api';
 
-// ============================================================
-// TYPES (Matching Backend DTOs)
-// ============================================================
 export interface User {
   id: number;
   employeeCode: string;
@@ -13,72 +9,59 @@ export interface User {
   lastName: string | null;
   email: string;
   phone: string;
-  departmentId: number | null;
+  department: string | null;          // enum: DOCUMENTATION etc.
   departmentName: string | null;
   teamId: number | null;
   teamName: string | null;
   roleId: number | null;
-  roleName: string | null;
+  roleName: string | null;            // enum: ADMIN | TEAM_LEAD | EMPLOYEE
   temporaryPassword: string | null;
   active: boolean;
   attendancePolicyId: number | null;
   attendancePolicyName: string | null;
   workMode: 'OFFICE' | 'WORK_FROM_HOME' | 'HYBRID';
-  // ✅ NEW: CallHippo fields
   callHippoApiToken?: string | null;
   callHippoFromNumber?: string | null;
   callHippoAgentId?: string | null;
 }
 
-// ============================================================
-// CREATE EMPLOYEE REQUEST (POST /api/users)
-// ============================================================
 export interface CreateEmployeeRequest {
-  employeeCode: string;          // required, max 30
-  firstName: string;             // required, max 100
-  lastName?: string | null;      // optional, max 100
-  email: string;                 // required, max 150
-  phone: string;                 // required, 10 digits
-  departmentId: number;          // required
-  teamId?: number | null;        // optional
-  roleId?: number | null;        // optional
-  attendancePolicyId: number;    // required
-  workMode: 'OFFICE' | 'WORK_FROM_HOME' | 'HYBRID'; // required
-  // ✅ NEW: CallHippo fields (optional)
+  employeeCode: string;
+  firstName: string;
+  lastName?: string | null;
+  email: string;
+  phone: string;
+  department: string;                 // ✅ enum
+  teamId?: number | null;
+  role?: string | null;               // ✅ enum string
+  attendancePolicyId: number;
+  workMode: 'OFFICE' | 'WORK_FROM_HOME' | 'HYBRID';
   callHippoApiToken?: string | null;
   callHippoFromNumber?: string | null;
   callHippoAgentId?: string | null;
 }
 
-// ============================================================
-// UPDATE EMPLOYEE REQUEST (PUT /api/users/{id})
-// ============================================================
 export interface UpdateEmployeeRequest {
-  firstName: string;             // required, max 100
-  lastName?: string | null;      // optional, max 100
-  email: string;                 // required, max 150
-  phone: string;                 // required, 10 digits
-  departmentId: number;          // required
-  teamId?: number | null;        // optional
-  roleId?: number | null;        // optional
-  active: boolean;               // required
-  attendancePolicyId: number;    // required
-  workMode: 'OFFICE' | 'WORK_FROM_HOME' | 'HYBRID'; // required
-  // ✅ NEW: CallHippo fields (optional)
+  firstName: string;
+  lastName?: string | null;
+  email: string;
+  phone: string;
+  department: string;                 // ✅ enum
+  teamId?: number | null;
+  role?: string | null;               // ✅ enum string
+  active: boolean;
+  attendancePolicyId: number;
+  workMode: 'OFFICE' | 'WORK_FROM_HOME' | 'HYBRID';
   callHippoApiToken?: string | null;
   callHippoFromNumber?: string | null;
   callHippoAgentId?: string | null;
 }
 
-// ============================================================
-// CHANGE PASSWORD SECTION (Request DTO)
-// ============================================================
 export interface ChangePasswordRequest {
   currentPassword: string;
   newPassword: string;
   confirmPassword: string;
 }
-// ============================================================
 
 export interface ActivityLogResponseDto {
   id: number;
@@ -90,8 +73,9 @@ export interface ActivityLogResponseDto {
 
 export interface QuickAssignRequestDto {
   teamId?: number | null;
-  departmentId?: number | null;
+  department?: string | null;         // ✅ enum string
   roleId?: number | null;
+  override?: boolean;
 }
 
 export interface TeamLeadResponseDto {
@@ -99,15 +83,11 @@ export interface TeamLeadResponseDto {
   employeeCode: string;
   fullName: string;
   email: string;
-  departmentId: number | null;
   departmentName: string;
   teamId: number | null;
   teamName: string;
 }
 
-// ============================================================
-// STATE
-// ============================================================
 interface UsersState {
   list: User[];
   currentUser: User | null;
@@ -115,14 +95,11 @@ interface UsersState {
   myTeamUsers: User[];
   history: ActivityLogResponseDto[];
   teamLeads: TeamLeadResponseDto[];
-
-  // Status filter specific state (with infinite scroll support)
   statusFilteredUsers: User[];
   statusTotal: number;
   statusPage: number;
   statusSize: number;
   statusHasMore: boolean;
-
   loading: boolean;
   error: string | null;
 }
@@ -144,10 +121,8 @@ const initialState: UsersState = {
 };
 
 // ============================================================
-// ASYNC THUNKS
+// THUNKS
 // ============================================================
-
-// GET /users/{id}
 export const fetchUserDetails = createAsyncThunk(
   'users/fetchDetails',
   async (id: string | number, { rejectWithValue }) => {
@@ -160,7 +135,6 @@ export const fetchUserDetails = createAsyncThunk(
   }
 );
 
-// GET /users (All - No Pagination)
 export const fetchUsers = createAsyncThunk(
   'users/fetchAll',
   async (_, { rejectWithValue }) => {
@@ -173,12 +147,14 @@ export const fetchUsers = createAsyncThunk(
   }
 );
 
-// GET /users/status?active={boolean}&page={page}&size={size}
 export const fetchUsersByStatus = createAsyncThunk(
   'users/fetchByStatus',
-  async ({ active, page = 0, size = 20, append = false }:
-    { active: boolean; page?: number; size?: number; append?: boolean },
-    { rejectWithValue }) => {
+  async (
+    { active, page = 0, size = 20, append = false }: {
+      active: boolean; page?: number; size?: number; append?: boolean;
+    },
+    { rejectWithValue }
+  ) => {
     try {
       const response = await api.get('/users/status', { params: { active, page, size } });
       return { active, data: response.data, append };
@@ -188,36 +164,25 @@ export const fetchUsersByStatus = createAsyncThunk(
   }
 );
 
-// ============================================================
-// POST /users  →  Create Employee (with CallHippo fields)
-// ============================================================
 export const createEmployee = createAsyncThunk(
   'users/create',
   async (userData: CreateEmployeeRequest, { rejectWithValue }) => {
     try {
-      // Build clean payload — omit undefined CallHippo fields
       const payload: CreateEmployeeRequest = {
         employeeCode: userData.employeeCode.trim(),
         firstName: userData.firstName.trim(),
         lastName: userData.lastName?.trim() || null,
         email: userData.email.trim().toLowerCase(),
         phone: userData.phone.trim(),
-        departmentId: Number(userData.departmentId),
+        department: userData.department,
         teamId: userData.teamId != null ? Number(userData.teamId) : null,
-        roleId: userData.roleId != null ? Number(userData.roleId) : null,
+        role: userData.role || null,
         attendancePolicyId: Number(userData.attendancePolicyId),
         workMode: userData.workMode,
       };
-
-      if (userData.callHippoApiToken !== undefined && userData.callHippoApiToken !== null && userData.callHippoApiToken !== '') {
-        payload.callHippoApiToken = userData.callHippoApiToken;
-      }
-      if (userData.callHippoFromNumber !== undefined && userData.callHippoFromNumber !== null && userData.callHippoFromNumber !== '') {
-        payload.callHippoFromNumber = userData.callHippoFromNumber;
-      }
-      if (userData.callHippoAgentId !== undefined && userData.callHippoAgentId !== null && userData.callHippoAgentId !== '') {
-        payload.callHippoAgentId = userData.callHippoAgentId;
-      }
+      if (userData.callHippoApiToken) payload.callHippoApiToken = userData.callHippoApiToken;
+      if (userData.callHippoFromNumber) payload.callHippoFromNumber = userData.callHippoFromNumber;
+      if (userData.callHippoAgentId) payload.callHippoAgentId = userData.callHippoAgentId;
 
       const response = await api.post('/users', payload);
       return response.data;
@@ -227,9 +192,6 @@ export const createEmployee = createAsyncThunk(
   }
 );
 
-// ============================================================
-// PUT /users/{id}  →  Update Employee (with CallHippo fields)
-// ============================================================
 export const updateEmployee = createAsyncThunk(
   'users/update',
   async ({ id, ...updateData }: { id: number } & UpdateEmployeeRequest, { rejectWithValue }) => {
@@ -239,23 +201,16 @@ export const updateEmployee = createAsyncThunk(
         lastName: updateData.lastName?.trim() || null,
         email: updateData.email.trim().toLowerCase(),
         phone: updateData.phone.trim(),
-        departmentId: Number(updateData.departmentId),
+        department: updateData.department,
         teamId: updateData.teamId != null ? Number(updateData.teamId) : null,
-        roleId: updateData.roleId != null ? Number(updateData.roleId) : null,
+        role: updateData.role || null,
         active: Boolean(updateData.active),
         attendancePolicyId: Number(updateData.attendancePolicyId),
         workMode: updateData.workMode,
       };
-
-      if (updateData.callHippoApiToken !== undefined && updateData.callHippoApiToken !== null && updateData.callHippoApiToken !== '') {
-        payload.callHippoApiToken = updateData.callHippoApiToken;
-      }
-      if (updateData.callHippoFromNumber !== undefined && updateData.callHippoFromNumber !== null && updateData.callHippoFromNumber !== '') {
-        payload.callHippoFromNumber = updateData.callHippoFromNumber;
-      }
-      if (updateData.callHippoAgentId !== undefined && updateData.callHippoAgentId !== null && updateData.callHippoAgentId !== '') {
-        payload.callHippoAgentId = updateData.callHippoAgentId;
-      }
+      if (updateData.callHippoApiToken) payload.callHippoApiToken = updateData.callHippoApiToken;
+      if (updateData.callHippoFromNumber) payload.callHippoFromNumber = updateData.callHippoFromNumber;
+      if (updateData.callHippoAgentId) payload.callHippoAgentId = updateData.callHippoAgentId;
 
       const response = await api.put(`/users/${id}`, payload);
       return response.data;
@@ -265,7 +220,6 @@ export const updateEmployee = createAsyncThunk(
   }
 );
 
-// PATCH /users/{id}/status
 export const updateUserStatus = createAsyncThunk(
   'users/updateStatus',
   async ({ userId, active }: { userId: number; active: boolean }, { rejectWithValue }) => {
@@ -278,10 +232,6 @@ export const updateUserStatus = createAsyncThunk(
   }
 );
 
-// ============================================================
-// CHANGE PASSWORD SECTION (ASYNC THUNK)
-// ============================================================
-// PUT /users/change-password
 export const changePassword = createAsyncThunk(
   'users/changePassword',
   async (passwordData: ChangePasswordRequest, { rejectWithValue }) => {
@@ -293,9 +243,7 @@ export const changePassword = createAsyncThunk(
     }
   }
 );
-// ============================================================
 
-// GET /teams/{teamId}/users
 export const fetchUsersByTeam = createAsyncThunk(
   'users/fetchByTeam',
   async (teamId: number, { rejectWithValue }) => {
@@ -308,7 +256,6 @@ export const fetchUsersByTeam = createAsyncThunk(
   }
 );
 
-// GET /teams/my-team/users
 export const fetchMyTeamUsers = createAsyncThunk(
   'users/fetchMyTeam',
   async (_, { rejectWithValue }) => {
@@ -321,7 +268,6 @@ export const fetchMyTeamUsers = createAsyncThunk(
   }
 );
 
-// GET /api/users/{id}/history
 export const fetchEmployeeHistory = createAsyncThunk(
   'users/fetchHistory',
   async (userId: number, { rejectWithValue }) => {
@@ -334,7 +280,6 @@ export const fetchEmployeeHistory = createAsyncThunk(
   }
 );
 
-// PATCH /api/users/{id}/quick-assign
 export const quickAssign = createAsyncThunk(
   'users/quickAssign',
   async ({ userId, data }: { userId: number; data: QuickAssignRequestDto }, { rejectWithValue }) => {
@@ -347,7 +292,6 @@ export const quickAssign = createAsyncThunk(
   }
 );
 
-// GET /api/users/team-leads
 export const fetchTeamLeads = createAsyncThunk(
   'users/fetchTeamLeads',
   async (_, { rejectWithValue }) => {
@@ -381,15 +325,9 @@ const usersSlice = createSlice({
       state.statusHasMore = true;
       state.error = null;
     },
-    clearError: (state) => {
-      state.error = null;
-    },
-    clearHistory: (state) => {
-      state.history = [];
-    },
-    clearTeamLeads: (state) => {
-      state.teamLeads = [];
-    },
+    clearError: (state) => { state.error = null; },
+    clearHistory: (state) => { state.history = []; },
+    clearTeamLeads: (state) => { state.teamLeads = []; },
     clearStatusFilteredUsers: (state) => {
       state.statusFilteredUsers = [];
       state.statusTotal = 0;
@@ -406,11 +344,7 @@ const usersSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
-      // ---------- fetchUserDetails ----------
-      .addCase(fetchUserDetails.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
+      .addCase(fetchUserDetails.pending, (state) => { state.loading = true; state.error = null; })
       .addCase(fetchUserDetails.fulfilled, (state, action: PayloadAction<User>) => {
         state.loading = false;
         state.currentUser = action.payload;
@@ -419,11 +353,7 @@ const usersSlice = createSlice({
         state.loading = false;
         state.error = action.payload as string;
       })
-      // ---------- fetchUsers ----------
-      .addCase(fetchUsers.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
+      .addCase(fetchUsers.pending, (state) => { state.loading = true; state.error = null; })
       .addCase(fetchUsers.fulfilled, (state, action: PayloadAction<User[]>) => {
         state.loading = false;
         state.list = action.payload;
@@ -432,11 +362,7 @@ const usersSlice = createSlice({
         state.loading = false;
         state.error = action.payload as string;
       })
-      // ---------- fetchUsersByStatus ----------
-      .addCase(fetchUsersByStatus.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
+      .addCase(fetchUsersByStatus.pending, (state) => { state.loading = true; state.error = null; })
       .addCase(fetchUsersByStatus.fulfilled, (state, action: PayloadAction<{ active: boolean; data: any; append: boolean }>) => {
         state.loading = false;
         const pageData = action.payload.data;
@@ -461,15 +387,10 @@ const usersSlice = createSlice({
         state.error = action.payload as string;
         state.statusHasMore = false;
       })
-      // ---------- createEmployee ----------
-      .addCase(createEmployee.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
+      .addCase(createEmployee.pending, (state) => { state.loading = true; state.error = null; })
       .addCase(createEmployee.fulfilled, (state, action: PayloadAction<User>) => {
         state.loading = false;
         state.list.push(action.payload);
-        // Also push into statusFilteredUsers if user is active (usually admin created are active)
         if (action.payload.active) {
           state.statusFilteredUsers = [action.payload, ...state.statusFilteredUsers];
           state.statusTotal += 1;
@@ -479,30 +400,21 @@ const usersSlice = createSlice({
         state.loading = false;
         state.error = action.payload as string;
       })
-      // ---------- updateEmployee ----------
-      .addCase(updateEmployee.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
+      .addCase(updateEmployee.pending, (state) => { state.loading = true; state.error = null; })
       .addCase(updateEmployee.fulfilled, (state, action: PayloadAction<User>) => {
         state.loading = false;
         const updated = action.payload;
-
         const updateInArray = (users: User[]) => {
-          const index = users.findIndex(u => u.id === updated.id);
+          const index = users.findIndex((u) => u.id === updated.id);
           if (index !== -1) users[index] = updated;
           return users;
         };
-
         state.list = updateInArray(state.list);
-        if (state.currentUser?.id === updated.id) {
-          state.currentUser = updated;
-        }
+        if (state.currentUser?.id === updated.id) state.currentUser = updated;
         state.statusFilteredUsers = updateInArray(state.statusFilteredUsers);
-
         Object.keys(state.usersByTeam).forEach((teamId) => {
           const teamUsers = state.usersByTeam[Number(teamId)];
-          const idx = teamUsers.findIndex(u => u.id === updated.id);
+          const idx = teamUsers.findIndex((u) => u.id === updated.id);
           if (idx !== -1) teamUsers[idx] = updated;
         });
       })
@@ -510,61 +422,30 @@ const usersSlice = createSlice({
         state.loading = false;
         state.error = action.payload as string;
       })
-      // ---------- updateUserStatus ----------
-      .addCase(updateUserStatus.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
+      .addCase(updateUserStatus.pending, (state) => { state.loading = true; state.error = null; })
       .addCase(updateUserStatus.fulfilled, (state, action: PayloadAction<{ userId: number; active: boolean }>) => {
         state.loading = false;
         const { userId, active } = action.payload;
-
         const updateStatusInArray = (users: User[]) => {
-          const user = users.find(u => u.id === userId);
-          if (user) {
-            user.active = active;
-          }
+          const user = users.find((u) => u.id === userId);
+          if (user) user.active = active;
           return users;
         };
-
         state.list = updateStatusInArray(state.list);
-        if (state.currentUser?.id === userId) {
-          state.currentUser.active = active;
-        }
+        if (state.currentUser?.id === userId) state.currentUser.active = active;
         state.statusFilteredUsers = updateStatusInArray(state.statusFilteredUsers);
-
-        Object.keys(state.usersByTeam).forEach((teamId) => {
-          const teamUsers = state.usersByTeam[Number(teamId)];
-          const user = teamUsers.find(u => u.id === userId);
-          if (user) {
-            user.active = active;
-          }
-        });
       })
       .addCase(updateUserStatus.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload as string;
       })
-      // ============================================================
-      // CHANGE PASSWORD SECTION (EXTRA REDUCERS)
-      // ============================================================
-      .addCase(changePassword.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
-      .addCase(changePassword.fulfilled, (state) => {
-        state.loading = false;
-      })
+      .addCase(changePassword.pending, (state) => { state.loading = true; state.error = null; })
+      .addCase(changePassword.fulfilled, (state) => { state.loading = false; })
       .addCase(changePassword.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload as string;
       })
-      // ============================================================
-      // ---------- fetchUsersByTeam ----------
-      .addCase(fetchUsersByTeam.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
+      .addCase(fetchUsersByTeam.pending, (state) => { state.loading = true; state.error = null; })
       .addCase(fetchUsersByTeam.fulfilled, (state, action) => {
         state.loading = false;
         state.usersByTeam[action.payload.teamId] = action.payload.users;
@@ -573,11 +454,7 @@ const usersSlice = createSlice({
         state.loading = false;
         state.error = action.payload as string;
       })
-      // ---------- fetchMyTeamUsers ----------
-      .addCase(fetchMyTeamUsers.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
+      .addCase(fetchMyTeamUsers.pending, (state) => { state.loading = true; state.error = null; })
       .addCase(fetchMyTeamUsers.fulfilled, (state, action: PayloadAction<User[]>) => {
         state.loading = false;
         state.myTeamUsers = action.payload;
@@ -586,11 +463,7 @@ const usersSlice = createSlice({
         state.loading = false;
         state.error = action.payload as string;
       })
-      // ---------- fetchEmployeeHistory ----------
-      .addCase(fetchEmployeeHistory.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
+      .addCase(fetchEmployeeHistory.pending, (state) => { state.loading = true; state.error = null; })
       .addCase(fetchEmployeeHistory.fulfilled, (state, action: PayloadAction<ActivityLogResponseDto[]>) => {
         state.loading = false;
         state.history = action.payload;
@@ -599,23 +472,13 @@ const usersSlice = createSlice({
         state.loading = false;
         state.error = action.payload as string;
       })
-      // ---------- quickAssign ----------
-      .addCase(quickAssign.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
-      .addCase(quickAssign.fulfilled, (state) => {
-        state.loading = false;
-      })
+      .addCase(quickAssign.pending, (state) => { state.loading = true; state.error = null; })
+      .addCase(quickAssign.fulfilled, (state) => { state.loading = false; })
       .addCase(quickAssign.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload as string;
       })
-      // ---------- fetchTeamLeads ----------
-      .addCase(fetchTeamLeads.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
+      .addCase(fetchTeamLeads.pending, (state) => { state.loading = true; state.error = null; })
       .addCase(fetchTeamLeads.fulfilled, (state, action: PayloadAction<TeamLeadResponseDto[]>) => {
         state.loading = false;
         state.teamLeads = action.payload;

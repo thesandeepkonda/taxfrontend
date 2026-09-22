@@ -5,20 +5,25 @@ import { RootState, AppDispatch } from '../../store';
 import { 
   sendMessage, 
   fetchChatHistory, 
-  clearMessages, 
   markChatAsReadLocal, 
   editMessage, 
   setEditingMessage,
   setForwardingMessage,
   forwardMessage,
   sendFileMessage,
+  clearChatThunk,
+  searchChatMessages,
+  fetchPinnedMessages,
+  togglePinMessage,
+  fetchGroupMembers,
+  setReplyingMessage,
   ChatMessage
 } from '../../store/slices/chatSlice';
 import api from '../../services/api';
 import { 
   Send, User, Users, Loader2, Smile, Paperclip, X, 
   FileText, MoreVertical, ChevronDown, Search, Pencil, Check,
-  Forward, Square, CheckSquare
+  Forward, Square, CheckSquare, Pin, Trash2, Reply
 } from 'lucide-react';
 import EmojiPicker from 'emoji-picker-react';
 import ChatMessageItem from './ChatMessageItem';
@@ -27,7 +32,10 @@ const ChatWindow: React.FC = () => {
   const dispatch = useDispatch<AppDispatch>();
   const { 
     messages, activeChat, isSending, isLoadingHistory, 
-    sidebarItems, contacts, editingMessage, forwardingMessage 
+    sidebarItems, contacts, editingMessage, forwardingMessage,
+    searchResults, isSearchingApi, pinnedMessages,
+    groupMembers, groupMemberCount, isLoadingGroupMembers,
+    replyingMessage
   } = useSelector((state: RootState) => state.chat);
   const currentUser = useSelector((state: RootState) => state.auth.user);
 
@@ -38,6 +46,8 @@ const ChatWindow: React.FC = () => {
   const [showSearchBox, setShowSearchBox] = useState(false);
   const [searchKeyword, setSearchKeyword] = useState('');
   const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false);
+  const [showClearModal, setShowClearModal] = useState(false); 
+  const [showMembersModal, setShowMembersModal] = useState(false); 
 
   // Forward Modal States
   const [fwdSearchQuery, setFwdSearchQuery] = useState('');
@@ -55,6 +65,15 @@ const ChatWindow: React.FC = () => {
   const [hasMore, setHasMore] = useState(true);
   const isFetchingOlderRef = useRef(false);
   const previousScrollHeight = useRef<number>(0);
+
+  useEffect(() => {
+    const delayDebounceFn = setTimeout(() => {
+      if (searchKeyword.trim() && activeChat) {
+        dispatch(searchChatMessages({ keyword: searchKeyword.trim(), id: activeChat.id, type: activeChat.type }));
+      }
+    }, 500);
+    return () => clearTimeout(delayDebounceFn);
+  }, [searchKeyword, activeChat, dispatch]);
 
   useEffect(() => {
     if (forwardingMessage) {
@@ -88,9 +107,13 @@ const ChatWindow: React.FC = () => {
       isFetchingOlderRef.current = false;
       
       dispatch(setEditingMessage(null)); 
+      dispatch(setReplyingMessage(null));
       setText('');
 
+      dispatch(fetchPinnedMessages({ id: activeChat.id, type: activeChat.type }));
+
       if (activeChat.type === 'GROUP') {
+        dispatch(fetchGroupMembers(activeChat.id));
         api.put(`/chat/group/${activeChat.id}/read`).catch(console.error);
       } else {
         api.put(`/chat/direct/${activeChat.id}/read`).catch(console.error);
@@ -107,7 +130,7 @@ const ChatWindow: React.FC = () => {
   }, [activeChat, dispatch]);
 
   useEffect(() => {
-    if (activeChat && messages.length > 0) {
+    if (activeChat && messages.length > 0 && !searchKeyword.trim()) {
       const lastMsg = messages[messages.length - 1];
       if (lastMsg && !lastMsg.isMine) {
         if (activeChat.type === 'GROUP') {
@@ -118,10 +141,10 @@ const ChatWindow: React.FC = () => {
         dispatch(markChatAsReadLocal({ id: activeChat.id, type: activeChat.type }));
       }
     }
-  }, [messages, activeChat, dispatch]);
+  }, [messages, activeChat, searchKeyword, dispatch]);
 
   useEffect(() => {
-    if (!isLoadingHistory) {
+    if (!isLoadingHistory && !searchKeyword.trim()) {
       if (isFetchingOlderRef.current && scrollContainerRef.current) {
         const newScrollHeight = scrollContainerRef.current.scrollHeight;
         scrollContainerRef.current.scrollTop = newScrollHeight - previousScrollHeight.current;
@@ -130,7 +153,7 @@ const ChatWindow: React.FC = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
       }
     }
-  }, [messages, isLoadingHistory]);
+  }, [messages, isLoadingHistory, searchKeyword]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -176,12 +199,13 @@ const ChatWindow: React.FC = () => {
     } else {
       return ((mSender === cActive && mRecipient === cUser) || (mSender === cUser && mRecipient === cActive));
     }
-  }).filter((m) => {
-    if (!searchKeyword.trim()) return true;
-    return m.content?.toLowerCase().includes(searchKeyword.toLowerCase());
   });
 
+  const displayMessages = searchKeyword.trim() ? searchResults : chatMessages;
+
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    if (searchKeyword.trim()) return; 
+
     const target = e.target as HTMLDivElement;
     const isUpFromBottom = target.scrollHeight - target.scrollTop - target.clientHeight > 200;
     setShowScrollBottomBtn(isUpFromBottom);
@@ -209,6 +233,13 @@ const ChatWindow: React.FC = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  const scrollToMessage = (msgId: number) => {
+    const el = document.getElementById(`msg-${msgId}`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  };
+
   const handleEmojiClick = (emojiObject: any) => {
     setText((prevMsg) => prevMsg + emojiObject.emoji);
   };
@@ -224,9 +255,20 @@ const ChatWindow: React.FC = () => {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const handleClearChat = () => {
-    dispatch(clearMessages());
+  const handleClearChatClick = () => {
+    setShowClearModal(true);
     setShowMenu(false);
+  };
+
+  const confirmClearChat = async () => {
+    if (activeChat) {
+      try {
+        await dispatch(clearChatThunk({ id: activeChat.id, type: activeChat.type })).unwrap();
+      } catch (error) {
+        console.error("Failed to clear chat", error);
+      }
+    }
+    setShowClearModal(false);
   };
 
   const handleEditMessage = (msg: ChatMessage) => {
@@ -267,15 +309,17 @@ const ChatWindow: React.FC = () => {
       if (selectedFile) {
         const filePayload = {
           file: selectedFile,
-          content: text.trim() || selectedFile.name, // Use file name as content
-          ...(activeChat.type === 'GROUP' ? { groupId: activeChat.id } : { recipientId: activeChat.id })
+          content: text.trim() || selectedFile.name, 
+          ...(activeChat.type === 'GROUP' ? { groupId: activeChat.id } : { recipientId: activeChat.id }),
+          replyToId: replyingMessage ? replyingMessage.id : undefined
         };
         await dispatch(sendFileMessage(filePayload)).unwrap();
       } else {
         const textPayload = {
           content: text.trim(),
           type: "TEXT",
-          ...(activeChat.type === 'GROUP' ? { groupId: activeChat.id } : { recipientId: activeChat.id })
+          ...(activeChat.type === 'GROUP' ? { groupId: activeChat.id } : { recipientId: activeChat.id }),
+          replyToId: replyingMessage ? replyingMessage.id : undefined
         };
         await dispatch(sendMessage(textPayload)).unwrap();
       }
@@ -283,6 +327,7 @@ const ChatWindow: React.FC = () => {
       setText('');
       clearSelectedFile();
       setShowEmojiPicker(false);
+      dispatch(setReplyingMessage(null)); // Clear reply context after sending
     } catch (error) {
       console.error("Failed to send message", error);
     }
@@ -339,19 +384,26 @@ const ChatWindow: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full bg-[#f8f9fc] relative">
-      {/* Header */}
-      <div className="h-16 px-6 border-b border-gray-200 bg-white flex items-center justify-between gap-3 shrink-0 shadow-sm z-10">
+      {/* Header with higher z-index (z-50) */}
+      <div className="h-16 px-6 border-b border-gray-200 bg-white flex items-center justify-between gap-3 shrink-0 shadow-sm z-50">
         <div className="flex items-center gap-3">
-          <div className="relative w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center text-[#5f41b2] border border-blue-100">
+          <div className="relative w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center text-[#5f41b2] border border-blue-100 shrink-0">
             {activeChat.type === 'GROUP' ? <Users className="w-5 h-5" /> : <User className="w-5 h-5" />}
             {activeChat.type !== 'GROUP' && (
               <span className={`absolute bottom-0 right-0 w-3 h-3 border-2 border-white rounded-full transition-colors ${isActiveUserOnline ? 'bg-emerald-500' : 'bg-gray-300'}`}></span>
             )}
           </div>
-          <div>
-            <h3 className="font-bold text-[#1b2559] leading-tight">{activeChat.name}</h3>
-            <p className="text-xs text-gray-500 font-medium">
-              {activeChat.type === 'GROUP' ? 'Group Discussion' : (isActiveUserOnline ? 'Online' : 'Offline')}
+          
+          <div 
+            className={`flex flex-col min-w-0 ${activeChat.type === 'GROUP' ? 'cursor-pointer hover:opacity-80 transition' : ''}`}
+            onClick={() => activeChat.type === 'GROUP' && setShowMembersModal(true)}
+            title={activeChat.type === 'GROUP' ? 'Click to view participants' : ''}
+          >
+            <h3 className="font-bold text-[#1b2559] leading-tight truncate">{activeChat.name}</h3>
+            <p className="text-xs text-gray-500 font-medium truncate">
+              {activeChat.type === 'GROUP' 
+                ? (isLoadingGroupMembers ? 'Loading participants...' : `${groupMemberCount} participants`) 
+                : (isActiveUserOnline ? 'Online' : 'Offline')}
             </p>
           </div>
         </div>
@@ -362,12 +414,12 @@ const ChatWindow: React.FC = () => {
           </button>
 
           {showMenu && (
-            <div className="absolute right-0 top-12 w-40 bg-white border border-gray-200 rounded-xl shadow-xl py-1.5 z-30">
+            <div className="absolute right-0 top-12 w-40 bg-white border border-gray-200 rounded-xl shadow-xl py-1.5 z-[100]">
               <button type="button" onClick={() => { setShowSearchBox(!showSearchBox); setShowMenu(false); }} className="w-full px-4 py-2 text-left text-xs font-semibold text-gray-700 hover:bg-gray-50 flex items-center gap-2 cursor-pointer">
                 <Search className="w-3.5 h-3.5 text-gray-400" /> Search Messages
               </button>
-              <button type="button" onClick={handleClearChat} className="w-full px-4 py-2 text-left text-xs font-semibold text-rose-600 hover:bg-rose-50 flex items-center gap-2 cursor-pointer">
-                <X className="w-3.5 h-3.5" /> Clear Chat
+              <button type="button" onClick={handleClearChatClick} className="w-full px-4 py-2 text-left text-xs font-semibold text-rose-600 hover:bg-rose-50 flex items-center gap-2 cursor-pointer">
+                <Trash2 className="w-3.5 h-3.5" /> Clear Chat
               </button>
             </div>
           )}
@@ -375,7 +427,7 @@ const ChatWindow: React.FC = () => {
       </div>
 
       {showSearchBox && (
-        <div className="px-6 py-2.5 bg-white border-b border-gray-200 flex items-center gap-2 shrink-0 animate-in fade-in">
+        <div className="px-6 py-2.5 bg-white border-b border-gray-200 flex items-center gap-2 shrink-0 animate-in fade-in z-40 relative">
           <Search className="w-4 h-4 text-gray-400" />
           <input type="text" value={searchKeyword} onChange={(e) => setSearchKeyword(e.target.value)} placeholder="Search in conversation..." className="flex-1 text-xs font-medium focus:outline-none bg-transparent" />
           <button type="button" onClick={() => { setSearchKeyword(''); setShowSearchBox(false); }} className="text-gray-400 hover:text-gray-600 p-1 cursor-pointer">
@@ -384,25 +436,60 @@ const ChatWindow: React.FC = () => {
         </div>
       )}
 
+      {/* Pinned Messages Header UI */}
+      {pinnedMessages && pinnedMessages.length > 0 && !searchKeyword.trim() && (
+        <div className="bg-white border-b border-gray-200 px-6 py-2 shadow-sm z-30 shrink-0 max-h-32 overflow-y-auto space-y-1">
+          {pinnedMessages.map((pMsg) => (
+            <div 
+              key={`pinned-${pMsg.id}`} 
+              className="flex items-center justify-between bg-blue-50/50 rounded-lg p-2 border border-blue-100/50 hover:bg-blue-50 transition cursor-pointer" 
+              onClick={() => scrollToMessage(pMsg.id)}
+            >
+              <div className="flex items-center gap-2 overflow-hidden flex-1">
+                <Pin className="w-3.5 h-3.5 text-[#5f41b2] shrink-0" />
+                <div className="flex flex-col min-w-0">
+                  <span className="text-[10px] font-bold text-[#5f41b2] leading-none mb-0.5">Pinned Message</span>
+                  <span className="text-xs text-gray-600 truncate">{pMsg.content || pMsg.fileName}</span>
+                </div>
+              </div>
+              <button 
+                onClick={(e) => { 
+                  e.stopPropagation(); 
+                  dispatch(togglePinMessage(pMsg.id)); 
+                }} 
+                className="p-1.5 text-gray-400 hover:text-rose-500 hover:bg-white rounded-full transition ml-2 shrink-0 cursor-pointer"
+                title="Unpin message"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Messages Area */}
       <div className="flex-1 overflow-y-auto p-6 space-y-4 relative" ref={scrollContainerRef} onScroll={handleScroll}>
-        {isLoadingHistory && page === 0 ? (
+        {isSearchingApi ? (
           <div className="flex items-center justify-center h-full">
             <Loader2 className="w-6 h-6 animate-spin text-[#5f41b2]" />
           </div>
-        ) : chatMessages.length === 0 ? (
+        ) : isLoadingHistory && page === 0 ? (
+          <div className="flex items-center justify-center h-full">
+            <Loader2 className="w-6 h-6 animate-spin text-[#5f41b2]" />
+          </div>
+        ) : displayMessages.length === 0 ? (
           <div className="text-center text-gray-400 mt-10 text-sm font-medium">
-            No messages found. Start the conversation!
+            {searchKeyword.trim() ? "No messages found matching your search." : "No messages found. Start the conversation!"}
           </div>
         ) : (
           <>
-            {isLoadingHistory && page > 0 && (
+            {isLoadingHistory && page > 0 && !searchKeyword.trim() && (
               <div className="flex items-center justify-center py-2">
                 <Loader2 className="w-5 h-5 animate-spin text-[#5f41b2]" />
               </div>
             )}
             
-            {chatMessages.map((msg, idx) => {
+            {displayMessages.map((msg, idx) => {
               const isMine = Number(msg.senderId) === currentUserId || msg.isMine || false;
               return (
                 <ChatMessageItem 
@@ -419,7 +506,7 @@ const ChatWindow: React.FC = () => {
         <div ref={messagesEndRef} />
       </div>
 
-      {showScrollBottomBtn && (
+      {showScrollBottomBtn && !searchKeyword.trim() && (
         <button type="button" onClick={scrollToBottom} className="absolute bottom-20 right-6 w-10 h-10 rounded-full bg-white shadow-lg border border-gray-200 text-[#5f41b2] flex items-center justify-center hover:bg-gray-50 transition z-20 cursor-pointer">
           <ChevronDown className="w-5 h-5" />
         </button>
@@ -427,6 +514,23 @@ const ChatWindow: React.FC = () => {
 
       {/* Input Area */}
       <div className="relative">
+        
+        {/* Reply Context Banner */}
+        {replyingMessage && !editingMessage && (
+          <div className="absolute bottom-[100%] left-0 right-0 bg-gray-50 border-t border-b border-gray-200 px-6 py-2.5 flex items-center justify-between shadow-sm z-50">
+            <div className="flex items-center gap-3 overflow-hidden border-l-4 border-[#5f41b2] pl-2">
+              <Reply className="w-4 h-4 text-[#5f41b2] shrink-0" />
+              <div className="flex flex-col min-w-0">
+                <span className="text-xs font-bold text-[#5f41b2]">Replying to {replyingMessage.senderName}</span>
+                <span className="text-[10px] text-gray-500 truncate">{replyingMessage.content || replyingMessage.fileName || 'Attachment'}</span>
+              </div>
+            </div>
+            <button type="button" onClick={() => dispatch(setReplyingMessage(null))} className="p-1 hover:bg-gray-200 rounded-full text-gray-500 transition shrink-0 cursor-pointer">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
         {editingMessage && (
           <div className="absolute bottom-[100%] left-0 right-0 bg-blue-50 border-t border-b border-blue-200 px-6 py-2.5 flex items-center justify-between shadow-sm z-50">
             <div className="flex items-center gap-3 overflow-hidden">
@@ -492,6 +596,46 @@ const ChatWindow: React.FC = () => {
         </div>
       </div>
 
+      {/* Group Members Modal Overlay */}
+      {showMembersModal && activeChat?.type === 'GROUP' && (
+        <div className="fixed inset-0 z-[200] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl flex flex-col max-h-[80vh] animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="text-lg font-bold text-[#1b2559] flex items-center gap-2">
+                <Users className="w-5 h-5 text-[#5f41b2]" /> Participants ({groupMemberCount})
+              </h3>
+              <button onClick={() => setShowMembersModal(false)} className="p-1 hover:bg-gray-100 rounded-full transition cursor-pointer">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-2">
+              {isLoadingGroupMembers ? (
+                <div className="flex justify-center p-4">
+                  <Loader2 className="w-6 h-6 animate-spin text-[#5f41b2]" />
+                </div>
+              ) : groupMembers.length > 0 ? (
+                groupMembers.map((member) => (
+                  <div key={`member-${member.userId}`} className="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 rounded-lg cursor-default transition">
+                    <div className="w-8 h-8 rounded-full bg-blue-50 border border-blue-100 flex items-center justify-center shrink-0 text-blue-700 font-bold text-xs">
+                      {member.name.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="flex flex-col min-w-0">
+                      <span className="text-sm font-semibold text-gray-700 truncate">{member.name}</span>
+                      <span className="text-[10px] text-gray-500 truncate">Emp Code: {member.employeeCode}</span>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center p-4 text-sm text-gray-400">
+                  No participants found.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Forward Modal Overlay */}
       {forwardingMessage && (
         <div className="fixed inset-0 z-[200] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
@@ -519,7 +663,6 @@ const ChatWindow: React.FC = () => {
             </div>
 
             <div className="flex-1 overflow-y-auto p-2">
-              {/* Groups Section */}
               {fwdGroups.length > 0 && (
                 <div className="mb-4">
                   <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider px-2 mb-2">Groups</h4>
@@ -543,7 +686,6 @@ const ChatWindow: React.FC = () => {
                 </div>
               )}
 
-              {/* Contacts Section */}
               {fwdContacts.length > 0 && (
                 <div>
                   <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider px-2 mb-2">Contacts</h4>
@@ -584,6 +726,28 @@ const ChatWindow: React.FC = () => {
                 className="px-5 py-2.5 text-sm font-bold text-white bg-[#5f41b2] hover:bg-[#4d3396] rounded-xl transition shadow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 <Forward className="w-4 h-4" /> Forward
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Clear Chat Confirmation Modal */}
+      {showClearModal && (
+        <div className="fixed inset-0 z-[200] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            <h3 className="text-lg font-bold text-[#1b2559] mb-2 flex items-center gap-2">
+              <Trash2 className="w-5 h-5 text-rose-600" /> Clear Chat
+            </h3>
+            <p className="text-sm text-gray-500 mb-6 font-medium">
+              Are you sure you want to clear this entire conversation? This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setShowClearModal(false)} className="px-4 py-2.5 text-sm font-bold text-gray-600 hover:bg-gray-100 rounded-xl transition cursor-pointer">
+                Cancel
+              </button>
+              <button onClick={confirmClearChat} className="px-4 py-2.5 text-sm font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl transition shadow-sm cursor-pointer">
+                Clear Chat
               </button>
             </div>
           </div>

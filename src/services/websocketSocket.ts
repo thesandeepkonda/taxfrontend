@@ -9,7 +9,7 @@ export class WebSocketService {
   private onDisconnectCallback: (() => void) | null = null;
 
   // Trackers for dynamic group subscriptions
-  private groupSubscriptions: Map<number, StompSubscription> = new Map();
+  private groupSubscriptions: Map<string, StompSubscription> = new Map();
   private pendingGroupSubscriptions: number[] = [];
 
   constructor(url: string) {
@@ -17,9 +17,9 @@ export class WebSocketService {
   }
 
   public connect(
-    token: string, 
-    onMessage: (msg: any) => void, 
-    onConnect: () => void, 
+    token: string,
+    onMessage: (msg: any) => void,
+    onConnect: () => void,
     onDisconnect: () => void
   ) {
     this.onMessageCallback = onMessage;
@@ -38,9 +38,9 @@ export class WebSocketService {
       this.client = new Client({
         brokerURL: wsUrl,
         connectHeaders: {
-          Authorization: `Bearer ${token}` // Added Headers for backend STOMP verification
+          Authorization: `Bearer ${token}` 
         },
-        reconnectDelay: 5000, // Native auto-reconnect functionality
+        reconnectDelay: 5000, 
         onConnect: () => {
           console.log('[WebSocket] Connection OPENED successfully!');
           
@@ -48,8 +48,7 @@ export class WebSocketService {
             try {
               const parsedData = JSON.parse(message.body);
               console.log('[WebSocket] Message Received:', parsedData);
-
-              // BYPASS TRICK: Ensure system events (status, unread count) pass through any ChatContext filters
+              
               if (parsedData.isOnline !== undefined || parsedData.unreadCount !== undefined) {
                  parsedData._isSystemEvent = true;
                  parsedData.content = parsedData.content || "SYSTEM_EVENT";
@@ -62,22 +61,35 @@ export class WebSocketService {
             }
           };
 
+          const handleReceipt = (message: any) => {
+            try {
+              const parsedData = JSON.parse(message.body);
+              console.log('[WebSocket] Receipt Received:', parsedData);
+              
+              // Wrap single receipt in array and add a flag to identify it
+              const dataToDispatch = Array.isArray(parsedData) ? parsedData : [parsedData];
+              dataToDispatch.forEach((d: any) => d._isReceipt = true);
+              
+              if (this.onMessageCallback) this.onMessageCallback(dataToDispatch);
+            } catch (err) {
+              console.error('[WebSocket] Receipt parsing error:', err);
+            }
+          };
+
           // 1. Subscribe to Single (Direct) Messages 
           this.client?.subscribe('/user/queue/chat', handleMessage);
-          
-          // Fallback just in case backend routes to standard STOMP destination
+          // 2. Subscribe to fallback
           this.client?.subscribe('/user/queue/messages', handleMessage);
-
-          // 2. Subscribe to Unread Count (User Queue)
+          // 3. Subscribe to Unread Count
           this.client?.subscribe('/user/queue/unread-count', handleMessage);
-
-          // 3. Subscribe to User Online/Offline Status (Topic)
+          // 4. Subscribe to User Online/Offline Status
           this.client?.subscribe('/topic/user-status', handleMessage);
+          // 5. Subscribe to Chat Receipts (Direct) - NEW
+          this.client?.subscribe('/user/queue/chat-receipts', handleReceipt);
 
-          // 4. Clear out any pending group subscriptions that arrived before connection was established
           if (this.pendingGroupSubscriptions.length > 0) {
             this.subscribeToGroups(this.pendingGroupSubscriptions);
-            this.pendingGroupSubscriptions = []; // Reset queue
+            this.pendingGroupSubscriptions = []; 
           }
 
           if (this.onConnectCallback) this.onConnectCallback();
@@ -100,17 +112,18 @@ export class WebSocketService {
     }
   }
 
-  // NEW: Dynamically subscribe to multiple groups
   public subscribeToGroups(groupIds: number[]) {
     if (!this.client || !this.client.connected) {
-      // If websocket is not connected yet, queue them up
       this.pendingGroupSubscriptions = [...new Set([...this.pendingGroupSubscriptions, ...groupIds])];
       console.log(`[WebSocket] Queued group subscriptions:`, groupIds);
       return;
     }
 
     groupIds.forEach((groupId) => {
-      if (!this.groupSubscriptions.has(groupId)) {
+      const groupKey = `group_${groupId}`;
+      const receiptKey = `receipt_${groupId}`;
+
+      if (!this.groupSubscriptions.has(groupKey)) {
         const subscription = this.client!.subscribe(`/topic/group/${groupId}`, (message) => {
           try {
             const parsedData = JSON.parse(message.body);
@@ -120,8 +133,26 @@ export class WebSocketService {
             console.error('[WebSocket] Group Message parsing error:', err);
           }
         });
-        this.groupSubscriptions.set(groupId, subscription);
+        this.groupSubscriptions.set(groupKey, subscription);
         console.log(`[WebSocket] Subscribed successfully to Group: ${groupId}`);
+      }
+
+      // Subscribe to group read receipts
+      if (!this.groupSubscriptions.has(receiptKey)) {
+        const receiptSubscription = this.client!.subscribe(`/topic/group/${groupId}/receipts`, (message) => {
+          try {
+            const parsedData = JSON.parse(message.body);
+            console.log(`[WebSocket] Group ${groupId} Receipt Received:`, parsedData);
+            
+            const dataToDispatch = Array.isArray(parsedData) ? parsedData : [parsedData];
+            dataToDispatch.forEach((d: any) => d._isReceipt = true);
+            
+            if (this.onMessageCallback) this.onMessageCallback(dataToDispatch);
+          } catch (err) {
+            console.error('[WebSocket] Group Receipt parsing error:', err);
+          }
+        });
+        this.groupSubscriptions.set(receiptKey, receiptSubscription);
       }
     });
   }
@@ -141,7 +172,6 @@ export class WebSocketService {
   public disconnect() {
     console.log('[WebSocket] Manual disconnect requested.');
     if (this.client) {
-      // Unsubscribe from all dynamic group subscriptions
       this.groupSubscriptions.forEach(sub => sub.unsubscribe());
       this.groupSubscriptions.clear();
       
@@ -154,4 +184,4 @@ export class WebSocketService {
   }
 }
 
-export const wsService = new WebSocketService('ws://192.168.0.181:8080/ws');
+export const wsService = new WebSocketService('ws://192.168.0.115:8081/ws');

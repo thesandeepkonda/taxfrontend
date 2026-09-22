@@ -15,41 +15,35 @@ import {
   QuickAssignRequestDto,
   resetStatusPagination,
 } from '../../../store/slices/usersSlice';
-import { fetchDepartments } from '../../../store/slices/departmentsSlice';
-import { fetchTeams } from '../../../store/slices/teamsSlice';
-import { fetchRoles } from '../../../store/slices/rolesSlice';
+import {
+  fetchTeamsByDepartment,
+  clearDepartmentTeams,
+  assignTeamLead,
+} from '../../../store/slices/teamsSlice';
 import { fetchAttendancePolicies } from '../../../store/slices/attendanceSlice';
+import { DEPARTMENT_OPTIONS, ROLE_OPTIONS } from '../../../constants/enums';
 import { useToast } from '../../../contexts/ToastContext';
-// ✅ Import Create Employee Modal
 import CreateEmployeeModal from '../resueables/CreateEmployeeModal';
 import {
-  Loader2,
-  Users,
-  Edit,
-  X,
-  RefreshCw,
-  AlertTriangle,
-  Clock,
-  Save,
-  Mail,
-  Phone,
-  Building2,
-  Briefcase,
-  Search,
-  Check,
-  UserCheck,
-  UserX,
-  History,
-  Pencil,
-  PowerOff,
-  Power,
-  Eye,
-  Filter,
-  UserPlus,
+  Loader2, Users, X, RefreshCw, AlertTriangle, Clock, Save,
+  Mail, Phone, Building2, Search, UserPlus, History, Pencil,
+  PowerOff, Power, Eye, Filter,
 } from 'lucide-react';
 
 // ============================================================
-// EMPLOYEE HISTORY MODAL (unchanged)
+// Helpers
+// ============================================================
+const getDeptEnum = (u: User | null | undefined): string => {
+  if (!u) return '';
+  return (u as any).department || (u as any).departmentName || '';
+};
+const getRoleEnum = (u: User | null | undefined): string => {
+  if (!u) return '';
+  return (u as any).role || (u as any).roleName || '';
+};
+
+// ============================================================
+// EMPLOYEE HISTORY MODAL
 // ============================================================
 const EmployeeHistoryModal: React.FC<{
   isOpen: boolean;
@@ -60,18 +54,14 @@ const EmployeeHistoryModal: React.FC<{
 }> = ({ isOpen, onClose, employeeName, history, loading }) => {
   if (!isOpen) return null;
 
-  const formatDate = (timestamp: string) => {
-    return new Date(timestamp).toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
+  const formatDate = (timestamp: string) =>
+    new Date(timestamp).toLocaleString('en-US', {
+      month: 'short', day: 'numeric', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
     });
-  };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4 animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4">
       <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-xl max-h-[85vh] flex flex-col overflow-hidden">
         <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 shrink-0">
           <div className="flex items-center gap-2.5">
@@ -91,7 +81,7 @@ const EmployeeHistoryModal: React.FC<{
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6 [scrollbar-width:thin]">
+        <div className="flex-1 overflow-y-auto p-6">
           {loading ? (
             <div className="flex flex-col items-center justify-center h-48 gap-3 text-slate-400">
               <Loader2 className="w-7 h-7 text-[#5f41b2] animate-spin" />
@@ -101,14 +91,13 @@ const EmployeeHistoryModal: React.FC<{
             <div className="text-center py-16 text-slate-400 flex flex-col items-center justify-center">
               <Clock className="w-10 h-10 opacity-20 mb-2" />
               <p className="text-xs font-semibold text-slate-600">No activity logs recorded yet</p>
-              <p className="text-[11px] text-slate-400 mt-0.5">Role and department changes will appear here</p>
             </div>
           ) : (
             <div className="relative pl-6 space-y-6 before:absolute before:left-2 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200">
               {history.map((log) => (
-                <div key={log.id} className="relative group">
+                <div key={log.id} className="relative">
                   <div className="absolute -left-[27px] top-1 w-3 h-3 rounded-full bg-white border-2 border-[#5f41b2]" />
-                  <div className="bg-slate-50 border border-slate-100 rounded-xl p-3.5 hover:border-slate-200 transition">
+                  <div className="bg-slate-50 border border-slate-100 rounded-xl p-3.5">
                     <div className="flex items-center justify-between gap-2 mb-1">
                       <span className="text-[10px] font-bold text-[#5f41b2] bg-[#5f41b2]/10 px-2.5 py-0.5 rounded-full border border-[#5f41b2]/20">
                         {log.actionType}
@@ -138,71 +127,58 @@ const EmployeeHistoryModal: React.FC<{
 };
 
 // ============================================================
-// MAIN COMPONENT
+// MAIN
 // ============================================================
 const AdminViewEmployees: React.FC = () => {
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
   const { showToast } = useToast();
+
   const {
-    statusFilteredUsers,
-    statusTotal,
-    statusPage,
-    statusHasMore,
-    loading,
-    error,
+    statusFilteredUsers, statusTotal, statusPage, statusHasMore, loading, error,
   } = useSelector((state: RootState) => state.users);
-  const { list: departments } = useSelector((state: RootState) => state.departments);
-  const { list: teams } = useSelector((state: RootState) => state.teams);
-  const { list: roles } = useSelector((state: RootState) => state.roles);
-  const { list: attendancePolicies } = useSelector((state: RootState) => state.attendance);
+  const { departmentTeams, loading: teamsLoading } = useSelector(
+    (state: RootState) => state.teams
+  );
+  const { list: attendancePolicies } = useSelector(
+    (state: RootState) => state.attendance
+  );
 
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<'active' | 'inactive'>('active');
 
-  // ---------- Infinite Scroll Observer ----------
   const loaderRef = useRef<HTMLDivElement>(null);
   const isFetchingRef = useRef(false);
 
-  // ---------- Edit Modal State ----------
   const [showEditModal, setShowEditModal] = useState(false);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [formData, setFormData] = useState<UpdateEmployeeRequest>({
-    firstName: '',
-    lastName: '',
-    email: '',
-    phone: '',
-    departmentId: 0,
-    teamId: null,
-    roleId: null,
-    active: true,
-    attendancePolicyId: 0,
-    workMode: 'OFFICE',
-    // ✅ CallHippo fields
-    callHippoApiToken: '',
-    callHippoFromNumber: '',
-    callHippoAgentId: '',
+    firstName: '', lastName: '', email: '', phone: '',
+    department: '', teamId: null, role: '', active: true,
+    attendancePolicyId: 0, workMode: 'OFFICE',
+    callHippoApiToken: '', callHippoFromNumber: '', callHippoAgentId: '',
   });
 
-  // ---------- Confirm Dialog State ----------
+  const [quickAssignSelections, setQuickAssignSelections] = useState<
+    Record<number, QuickAssignRequestDto>
+  >({});
+  const [quickAssignLoading, setQuickAssignLoading] = useState<Record<number, boolean>>({});
+
+  const [rowTeamsCache, setRowTeamsCache] = useState<
+    Record<string, { id: number; name: string }[]>
+  >({});
+  const [rowTeamsLoading, setRowTeamsLoading] = useState<Record<string, boolean>>({});
+
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [confirmAction, setConfirmAction] = useState<'activate' | 'deactivate' | null>(null);
   const [confirmUserId, setConfirmUserId] = useState<number | null>(null);
 
-  // ---------- Quick Assign State ----------
-  const [quickAssignSelections, setQuickAssignSelections] = useState<Record<number, QuickAssignRequestDto>>({});
-  const [quickAssignLoading, setQuickAssignLoading] = useState<Record<number, boolean>>({});
-
-  // ---------- History Modal State ----------
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
   const [historyEmployeeName, setHistoryEmployeeName] = useState('');
   const [historyData, setHistoryData] = useState<ActivityLogResponseDto[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
-  // ✅ Create Employee Modal State
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-
-  // ---------- Report Date State ----------
   const [reportDates, setReportDates] = useState<Record<number, { from: string; to: string }>>({});
 
   const getDefaultFromDate = () => {
@@ -212,52 +188,24 @@ const AdminViewEmployees: React.FC = () => {
   };
   const getDefaultToDate = () => new Date().toISOString().split('T')[0];
 
-  // ---------- Load data based on filter ----------
-  const loadEmployees = (filter: 'active' | 'inactive', reset: boolean = true) => {
-    if (reset) {
-      dispatch(resetStatusPagination());
-      dispatch(fetchUsersByStatus({ active: filter === 'active', page: 0, size: 20, append: false }));
-    } else {
-      const nextPage = statusPage + 1;
-      dispatch(fetchUsersByStatus({ active: filter === 'active', page: nextPage, size: 20, append: true }));
-    }
-  };
-
-  // Handle filter change (reset everything)
-  const handleFilterChange = (val: 'active' | 'inactive') => {
-    setFilterStatus(val);
-    setSearchQuery('');
-    dispatch(resetStatusPagination());
-    dispatch(fetchUsersByStatus({ active: val === 'active', page: 0, size: 20, append: false }));
-  };
-
-  // Initial load
   useEffect(() => {
     dispatch(resetStatusPagination());
     dispatch(fetchUsersByStatus({ active: filterStatus === 'active', page: 0, size: 20, append: false }));
   }, [filterStatus, dispatch]);
 
-  // Load other dropdown data
   useEffect(() => {
-    dispatch(fetchDepartments());
-    dispatch(fetchTeams());
-    dispatch(fetchRoles());
     dispatch(fetchAttendancePolicies());
   }, [dispatch]);
 
-  // Initialize report dates when users load
   useEffect(() => {
     if (statusFilteredUsers.length > 0) {
-      const defaultDates = statusFilteredUsers.reduce((acc, user) => {
+      const defaults = statusFilteredUsers.reduce((acc, user) => {
         if (user.id) {
-          acc[user.id] = {
-            from: getDefaultFromDate(),
-            to: getDefaultToDate(),
-          };
+          acc[user.id] = { from: getDefaultFromDate(), to: getDefaultToDate() };
         }
         return acc;
       }, {} as Record<number, { from: string; to: string }>);
-      setReportDates(defaultDates);
+      setReportDates(defaults);
     }
   }, [statusFilteredUsers]);
 
@@ -265,7 +213,6 @@ const AdminViewEmployees: React.FC = () => {
   const totalDisplayCount = statusTotal;
   const hasMore = statusHasMore;
 
-  // Apply search filter on top
   const filteredUsers = displayList.filter((u) => {
     const q = searchQuery.toLowerCase().trim();
     if (!q) return true;
@@ -278,62 +225,188 @@ const AdminViewEmployees: React.FC = () => {
     );
   });
 
-  // ---------- Infinite Scroll Observer ----------
   useEffect(() => {
     if (!loaderRef.current) return;
-
     const observer = new IntersectionObserver(
       (entries) => {
-        const target = entries[0];
-        if (target.isIntersecting && hasMore && !loading && !isFetchingRef.current) {
+        if (entries[0].isIntersecting && hasMore && !loading && !isFetchingRef.current) {
           isFetchingRef.current = true;
           const nextPage = statusPage + 1;
-          dispatch(fetchUsersByStatus({ active: filterStatus === 'active', page: nextPage, size: 20, append: true }))
-            .unwrap()
-            .finally(() => {
-              isFetchingRef.current = false;
-            });
+          dispatch(fetchUsersByStatus({
+            active: filterStatus === 'active', page: nextPage, size: 20, append: true,
+          })).unwrap().finally(() => { isFetchingRef.current = false; });
         }
       },
       { threshold: 0.1, rootMargin: '100px' }
     );
-
     observer.observe(loaderRef.current);
     return () => observer.disconnect();
   }, [filterStatus, hasMore, loading, statusPage, dispatch]);
 
-  // ---------- Handlers ----------
+  useEffect(() => {
+    if (!showEditModal) return;
+    const deptEnum = formData.department;
+    if (!deptEnum) return;
+    if (departmentTeams.length > 0) return;
+
+    dispatch(clearDepartmentTeams());
+    dispatch(fetchTeamsByDepartment(deptEnum));
+  }, [showEditModal, formData.department, dispatch, departmentTeams.length]);
+
   const handleRefresh = () => {
     dispatch(resetStatusPagination());
     dispatch(fetchUsersByStatus({ active: filterStatus === 'active', page: 0, size: 20, append: false }));
   };
 
-  const handleQuickAssignChange = (userId: number, field: keyof QuickAssignRequestDto, value: number | null) => {
-    setQuickAssignSelections((prev) => ({
-      ...prev,
-      [userId]: {
-        ...prev[userId],
-        [field]: value,
-      },
-    }));
+  const handleFilterChange = (val: 'active' | 'inactive') => {
+    setFilterStatus(val);
+    setSearchQuery('');
+    dispatch(resetStatusPagination());
+    dispatch(fetchUsersByStatus({ active: val === 'active', page: 0, size: 20, append: false }));
   };
 
+  // ============================================================
+  // QUICK ASSIGN row-level
+  // ============================================================
+  const fetchRowTeams = async (deptEnum: string) => {
+    if (!deptEnum) return;
+    if (rowTeamsCache[deptEnum]) return;
+    if (rowTeamsLoading[deptEnum]) return;
+
+    setRowTeamsLoading((prev) => ({ ...prev, [deptEnum]: true }));
+    try {
+      const data: any = await dispatch(fetchTeamsByDepartment(deptEnum)).unwrap();
+      const mapped = (data || []).map((t: any) => ({
+        id: t.teamId ?? t.id,
+        name: t.name,
+      }));
+      setRowTeamsCache((prev) => ({ ...prev, [deptEnum]: mapped }));
+    } catch {
+      setRowTeamsCache((prev) => ({ ...prev, [deptEnum]: [] }));
+    } finally {
+      setRowTeamsLoading((prev) => ({ ...prev, [deptEnum]: false }));
+    }
+  };
+
+  const handleQuickAssignChange = (
+    userId: number,
+    field: keyof QuickAssignRequestDto | 'role',
+    value: any
+  ) => {
+    setQuickAssignSelections((prev) => {
+      const updated = {
+        ...prev,
+        [userId]: { ...prev[userId], [field]: value },
+      };
+      if (field === 'department') {
+        updated[userId] = { ...updated[userId], teamId: null };
+        if (value) fetchRowTeams(value);
+      }
+      return updated;
+    });
+  };
+
+  // ============================================================
+  // ✅ QUICK ASSIGN SUBMIT — role-aware + auto-override
+  // ============================================================
   const handleQuickAssignSubmit = async (userId: number) => {
     const selections = quickAssignSelections[userId];
-    if (!selections || (!selections.departmentId && !selections.teamId && !selections.roleId)) {
+    if (!selections || (!selections.department && !selections.teamId && !selections.role)) {
       showToast('Please select at least one field to update', 'warning');
       return;
     }
 
     setQuickAssignLoading((prev) => ({ ...prev, [userId]: true }));
+
+    const isTeamLeadSelection = selections.role === 'TEAM_LEAD';
+
+    // ============================================================
+    // CASE A: TEAM_LEAD → use /teams/{teamId}/assign-lead/{employeeId}
+    // ============================================================
+    if (isTeamLeadSelection) {
+      if (!selections.teamId) {
+        showToast('Please select a team to assign as team lead', 'warning');
+        setQuickAssignLoading((prev) => ({ ...prev, [userId]: false }));
+        return;
+      }
+
+      const attemptAssignLead = async (override: boolean) =>
+        dispatch(
+          assignTeamLead({
+            teamId: Number(selections.teamId),
+            employeeId: userId,
+            override,
+          })
+        ).unwrap();
+
+      try {
+        console.log('📤 assignTeamLead payload:', {
+          teamId: selections.teamId,
+          employeeId: userId,
+          override: false,
+        });
+        await attemptAssignLead(false);
+        showToast('Team lead assigned successfully!', 'success');
+        handleRefresh();
+        setQuickAssignSelections((prev) => {
+          const copy = { ...prev };
+          delete copy[userId];
+          return copy;
+        });
+        setQuickAssignLoading((prev) => ({ ...prev, [userId]: false }));
+      } catch (err: any) {
+        const msg = typeof err === 'string' ? err : err?.message || '';
+        const lower = msg.toLowerCase();
+        const isConflict =
+          lower.includes('team lead') ||
+          lower.includes('already has a team lead');
+
+        if (isConflict) {
+          const confirmed = window.confirm(
+            'This team already has a team lead assigned.\n\nDo you want to override and replace the existing team lead?'
+          );
+
+          if (confirmed) {
+            try {
+              console.log('📤 assignTeamLead payload (override):', {
+                teamId: selections.teamId,
+                employeeId: userId,
+                override: true,
+              });
+              await attemptAssignLead(true);
+              showToast('Team lead reassigned with override!', 'success');
+              handleRefresh();
+              setQuickAssignSelections((prev) => {
+                const copy = { ...prev };
+                delete copy[userId];
+                return copy;
+              });
+            } catch (overrideErr: any) {
+              showToast(overrideErr || 'Override failed', 'error');
+            }
+          } else {
+            showToast('Override cancelled', 'info');
+          }
+        } else {
+          showToast(err || 'Failed to assign team lead', 'error');
+        }
+        setQuickAssignLoading((prev) => ({ ...prev, [userId]: false }));
+      }
+      return;
+    }
+
+    // ============================================================
+    // CASE B: EMPLOYEE / ADMIN / no role → /users/{userId}/quick-assign
+    // ============================================================
     try {
+      console.log('📤 quickAssign payload:', { userId, data: selections });
       await dispatch(quickAssign({ userId, data: selections })).unwrap();
       showToast('Assignment updated successfully!', 'success');
       handleRefresh();
       setQuickAssignSelections((prev) => {
-        const newSelections = { ...prev };
-        delete newSelections[userId];
-        return newSelections;
+        const copy = { ...prev };
+        delete copy[userId];
+        return copy;
       });
     } catch (err: any) {
       showToast(err || 'Quick assign failed', 'error');
@@ -342,58 +415,61 @@ const AdminViewEmployees: React.FC = () => {
     }
   };
 
-  const handleViewHistory = async (user: User) => {
-    setHistoryEmployeeName(`${user.firstName} ${user.lastName || ''}`);
-    setHistoryModalOpen(true);
-    setHistoryLoading(true);
-    try {
-      const data = await dispatch(fetchEmployeeHistory(user.id)).unwrap();
-      setHistoryData(data);
-    } catch (err: any) {
-      showToast(err || 'Failed to load history', 'error');
-      setHistoryData([]);
-    } finally {
-      setHistoryLoading(false);
-    }
-  };
-
-  // ✅ UPDATED: openEditModal with CallHippo fields
+  // ============================================================
+  // Edit modal
+  // ============================================================
   const openEditModal = (user: User) => {
     setSelectedUser(user);
+
+    const deptEnum = getDeptEnum(user);
+    const roleEnum = getRoleEnum(user);
+
     setFormData({
       firstName: user.firstName,
       lastName: user.lastName || '',
       email: user.email,
       phone: user.phone,
-      departmentId: user.departmentId || 0,
+      department: deptEnum,
       teamId: user.teamId ?? null,
-      roleId: user.roleId ?? null,
+      role: roleEnum,
       active: user.active,
       attendancePolicyId: user.attendancePolicyId || 0,
       workMode: user.workMode || 'OFFICE',
-      // ✅ CallHippo fields
       callHippoApiToken: user.callHippoApiToken || '',
       callHippoFromNumber: user.callHippoFromNumber || '',
       callHippoAgentId: user.callHippoAgentId || '',
     });
+
+    dispatch(clearDepartmentTeams());
+    if (deptEnum) {
+      dispatch(fetchTeamsByDepartment(deptEnum));
+    }
     setShowEditModal(true);
   };
 
   const closeEditModal = () => {
     setShowEditModal(false);
     setSelectedUser(null);
+    dispatch(clearDepartmentTeams());
   };
 
   const handleFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
     const checked = (e.target as HTMLInputElement).checked;
-    setFormData((prev) => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value,
-    }));
+    setFormData((prev) => {
+      const updated = {
+        ...prev,
+        [name]: type === 'checkbox' ? checked : value,
+      };
+      if (name === 'department') {
+        updated.teamId = null;
+        dispatch(clearDepartmentTeams());
+        if (value) dispatch(fetchTeamsByDepartment(value));
+      }
+      return updated;
+    });
   };
 
-  // ✅ UPDATED: handleUpdateEmployee with clean payload + CallHippo skip-empty logic
   const handleUpdateEmployee = async () => {
     if (!selectedUser) return;
     try {
@@ -402,24 +478,16 @@ const AdminViewEmployees: React.FC = () => {
         lastName: formData.lastName?.trim() || null,
         email: formData.email.trim().toLowerCase(),
         phone: formData.phone.trim(),
-        departmentId: Number(formData.departmentId),
+        department: formData.department,
         teamId: formData.teamId ? Number(formData.teamId) : null,
-        roleId: formData.roleId ? Number(formData.roleId) : null,
+        role: formData.role || null,
         active: Boolean(formData.active),
         attendancePolicyId: Number(formData.attendancePolicyId),
         workMode: formData.workMode,
       };
-
-      // ✅ CallHippo fields — only send if non-empty
-      if (formData.callHippoApiToken && formData.callHippoApiToken.trim()) {
-        payload.callHippoApiToken = formData.callHippoApiToken.trim();
-      }
-      if (formData.callHippoFromNumber && formData.callHippoFromNumber.trim()) {
-        payload.callHippoFromNumber = formData.callHippoFromNumber.trim();
-      }
-      if (formData.callHippoAgentId && formData.callHippoAgentId.trim()) {
-        payload.callHippoAgentId = formData.callHippoAgentId.trim();
-      }
+      if (formData.callHippoApiToken?.trim()) payload.callHippoApiToken = formData.callHippoApiToken.trim();
+      if (formData.callHippoFromNumber?.trim()) payload.callHippoFromNumber = formData.callHippoFromNumber.trim();
+      if (formData.callHippoAgentId?.trim()) payload.callHippoAgentId = formData.callHippoAgentId.trim();
 
       await dispatch(updateEmployee({ id: selectedUser.id, ...payload })).unwrap();
       showToast('Employee updated successfully!', 'success');
@@ -430,6 +498,9 @@ const AdminViewEmployees: React.FC = () => {
     }
   };
 
+  // ============================================================
+  // Confirm / History / Report
+  // ============================================================
   const openConfirm = (userId: number, action: 'activate' | 'deactivate') => {
     setConfirmUserId(userId);
     setConfirmAction(action);
@@ -451,13 +522,25 @@ const AdminViewEmployees: React.FC = () => {
     }
   };
 
+  const handleViewHistory = async (user: User) => {
+    setHistoryEmployeeName(`${user.firstName} ${user.lastName || ''}`);
+    setHistoryModalOpen(true);
+    setHistoryLoading(true);
+    try {
+      const data = await dispatch(fetchEmployeeHistory(user.id)).unwrap();
+      setHistoryData(data);
+    } catch (err: any) {
+      showToast(err || 'Failed to load history', 'error');
+      setHistoryData([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
   const handleDateChange = (userId: number, field: 'from' | 'to', value: string) => {
     setReportDates((prev) => ({
       ...prev,
-      [userId]: {
-        ...prev[userId],
-        [field]: value,
-      },
+      [userId]: { ...prev[userId], [field]: value },
     }));
   };
 
@@ -470,7 +553,6 @@ const AdminViewEmployees: React.FC = () => {
     navigate(`/admin/crm/reports?employeeId=${userId}&from=${dates.from}&to=${dates.to}`);
   };
 
-  // Badge helpers
   const getRoleBadge = (roleName: string | null) => {
     if (!roleName) return <span className="text-slate-400 font-medium text-xs">—</span>;
     const normalized = roleName.toUpperCase();
@@ -503,17 +585,20 @@ const AdminViewEmployees: React.FC = () => {
       HYBRID: 'bg-indigo-50 text-indigo-700 border-indigo-200',
     };
     return (
-      <span
-        className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold border ${colors[mode] || 'bg-slate-100 text-slate-600 border-slate-200'}`}
-      >
+      <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold border ${colors[mode] || 'bg-slate-100 text-slate-600 border-slate-200'}`}>
         {mode.replace(/_/g, ' ')}
       </span>
     );
   };
 
+  const departmentLabel = (dept?: string | null) =>
+    DEPARTMENT_OPTIONS.find((d) => d.value === dept)?.label || dept || '—';
+
+  // ============================================================
+  // RENDER
+  // ============================================================
   return (
     <div className="w-full h-full flex flex-col font-sans overflow-hidden">
-      {/* Header Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0 mb-5">
         <div>
           <h1 className="text-2xl font-extrabold text-[#1b2559] tracking-tight leading-none flex items-center gap-2.5">
@@ -525,19 +610,15 @@ const AdminViewEmployees: React.FC = () => {
           </p>
         </div>
 
-        {/* Search & Filters */}
         <div className="flex items-center gap-3 shrink-0 flex-wrap">
-          {/* ✅ Create Employee Button */}
           <button
             onClick={() => setIsCreateModalOpen(true)}
             className="flex items-center gap-2 px-3.5 py-2 bg-[#5f41b2] hover:bg-[#4d3396] text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer active:scale-95"
-            title="Create a new employee"
           >
             <UserPlus className="w-4 h-4" />
             <span>Create Employee</span>
           </button>
 
-          {/* Status Filter Dropdown - Only Active/Inactive */}
           <div className="relative">
             <select
               value={filterStatus}
@@ -560,6 +641,7 @@ const AdminViewEmployees: React.FC = () => {
               className="pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-[#5f41b2] w-64 shadow-xs"
             />
           </div>
+
           <button
             onClick={handleRefresh}
             title="Refresh List"
@@ -570,7 +652,6 @@ const AdminViewEmployees: React.FC = () => {
         </div>
       </div>
 
-      {/* Main Table */}
       <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col min-h-0 overflow-hidden">
         <div className="flex-1 overflow-y-auto p-2 [scrollbar-width:thin] relative">
           {loading && displayList.length === 0 ? (
@@ -590,15 +671,9 @@ const AdminViewEmployees: React.FC = () => {
               <p className="text-sm font-semibold">
                 {searchQuery ? 'No employees matched your search' : 'No employees found'}
               </p>
-              <button
-                onClick={() => setIsCreateModalOpen(true)}
-                className="mt-2 text-xs font-bold text-[#5f41b2] hover:underline flex items-center gap-1.5 cursor-pointer"
-              >
-                <UserPlus className="w-3.5 h-3.5" /> Create first employee
-              </button>
             </div>
           ) : (
-            <table className="w-full text-left text-sm min-w-[1500px] border-collapse">
+            <table className="w-full text-left text-sm min-w-[1600px] border-collapse">
               <thead className="bg-slate-50/80 sticky top-0 z-10 border-b border-slate-100">
                 <tr className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
                   <th className="py-3 px-4 rounded-l-xl">Employee</th>
@@ -618,11 +693,19 @@ const AdminViewEmployees: React.FC = () => {
                 {filteredUsers.map((user) => {
                   const isQuickAssignLoading = quickAssignLoading[user.id] || false;
                   const selections = quickAssignSelections[user.id] || {};
-                  const isModified = Boolean(selections.departmentId || selections.teamId || selections.roleId);
-                  const dates = reportDates[user.id] || { from: getDefaultFromDate(), to: getDefaultToDate() };
+                  const isModified = Boolean(selections.department || selections.teamId || selections.role);
+                  const dates = reportDates[user.id] || {
+                    from: getDefaultFromDate(),
+                    to: getDefaultToDate(),
+                  };
+
+                  const userDept = getDeptEnum(user);
+                  const rowDept = selections.department || userDept || '';
+                  const rowTeams = rowDept ? (rowTeamsCache[rowDept] || []) : [];
+                  const rowTeamsIsLoading = rowDept ? !!rowTeamsLoading[rowDept] : false;
 
                   const fullName = `${user.firstName} ${user.lastName || ''}`.trim();
-                  const viewClientsUrl = `/admin/crm/view-employee-clients/${user.id}?name=${encodeURIComponent(fullName)}&code=${encodeURIComponent(user.employeeCode)}&email=${encodeURIComponent(user.email || '')}&phone=${encodeURIComponent(user.phone || '')}&dept=${encodeURIComponent(user.departmentName || '')}&team=${encodeURIComponent(user.teamName || '')}&role=${encodeURIComponent(user.roleName || '')}&workMode=${encodeURIComponent(user.workMode || '')}`;
+                  const viewClientsUrl = `/admin/crm/view-employee-clients/${user.id}?name=${encodeURIComponent(fullName)}&code=${encodeURIComponent(user.employeeCode)}&email=${encodeURIComponent(user.email || '')}&phone=${encodeURIComponent(user.phone || '')}&dept=${encodeURIComponent(userDept)}&team=${encodeURIComponent(user.teamName || '')}&role=${encodeURIComponent(user.roleName || '')}&workMode=${encodeURIComponent(user.workMode || '')}`;
 
                   return (
                     <tr key={user.id} className="hover:bg-slate-50/70 transition-colors group">
@@ -654,7 +737,9 @@ const AdminViewEmployees: React.FC = () => {
                       <td className="py-3.5 px-3">
                         <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-700">
                           <Building2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                          <span className="truncate max-w-[140px]">{user.departmentName || '—'}</span>
+                          <span className="truncate max-w-[140px]">
+                            {departmentLabel(userDept)}
+                          </span>
                         </div>
                       </td>
 
@@ -679,23 +764,20 @@ const AdminViewEmployees: React.FC = () => {
                         </span>
                       </td>
 
+                      {/* QUICK ASSIGN */}
                       <td className="py-3.5 px-4 text-center">
                         <div className="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200/80 p-1 rounded-xl shadow-2xs">
                           <select
-                            value={selections.departmentId || ''}
+                            value={selections.department || ''}
                             onChange={(e) =>
-                              handleQuickAssignChange(
-                                user.id,
-                                'departmentId',
-                                e.target.value ? Number(e.target.value) : null
-                              )
+                              handleQuickAssignChange(user.id, 'department', e.target.value || null)
                             }
-                            className="text-[11px] font-semibold bg-white border border-slate-200 rounded-lg px-2 py-1 focus:ring-1 focus:ring-[#5f41b2] outline-none text-slate-700 w-24 cursor-pointer"
+                            className="text-[11px] font-semibold bg-white border border-slate-200 rounded-lg px-2 py-1 focus:ring-1 focus:ring-[#5f41b2] outline-none text-slate-700 w-28 cursor-pointer"
                           >
                             <option value="">Dept</option>
-                            {departments.map((d) => (
-                              <option key={d.id} value={d.id}>
-                                {d.name}
+                            {DEPARTMENT_OPTIONS.map((d) => (
+                              <option key={d.value} value={d.value}>
+                                {d.label}
                               </option>
                             ))}
                           </select>
@@ -704,38 +786,35 @@ const AdminViewEmployees: React.FC = () => {
                             value={selections.teamId || ''}
                             onChange={(e) =>
                               handleQuickAssignChange(
-                                user.id,
-                                'teamId',
+                                user.id, 'teamId',
                                 e.target.value ? Number(e.target.value) : null
                               )
                             }
-                            className="text-[11px] font-semibold bg-white border border-slate-200 rounded-lg px-2 py-1 focus:ring-1 focus:ring-[#5f41b2] outline-none text-slate-700 w-24 cursor-pointer"
+                            className="text-[11px] font-semibold bg-white border border-slate-200 rounded-lg px-2 py-1 focus:ring-1 focus:ring-[#5f41b2] outline-none text-slate-700 w-28 cursor-pointer"
+                            disabled={!rowDept || rowTeamsIsLoading}
                           >
-                            <option value="">Team</option>
-                            {teams
-                              .filter((t) => t.departmentId === (selections.departmentId || user.departmentId || 0))
-                              .map((t) => (
-                                <option key={t.id} value={t.id}>
-                                  {t.name}
-                                </option>
-                              ))}
+                            <option value="">
+                              {rowTeamsIsLoading ? 'Loading…' : !rowDept ? 'Pick Dept' : 'Team'}
+                            </option>
+                            {rowTeams.map((t) => (
+                              <option key={t.id} value={t.id}>
+                                {t.name}
+                              </option>
+                            ))}
                           </select>
 
+                          {/* ROLE dropdown — enum string */}
                           <select
-                            value={selections.roleId || ''}
+                            value={selections.role || ''}
                             onChange={(e) =>
-                              handleQuickAssignChange(
-                                user.id,
-                                'roleId',
-                                e.target.value ? Number(e.target.value) : null
-                              )
+                              handleQuickAssignChange(user.id, 'role', e.target.value || null)
                             }
-                            className="text-[11px] font-semibold bg-white border border-slate-200 rounded-lg px-2 py-1 focus:ring-1 focus:ring-[#5f41b2] outline-none text-slate-700 w-24 cursor-pointer"
+                            className="text-[11px] font-semibold bg-white border border-slate-200 rounded-lg px-2 py-1 focus:ring-1 focus:ring-[#5f41b2] outline-none text-slate-700 w-28 cursor-pointer"
                           >
                             <option value="">Role</option>
-                            {roles.map((r) => (
-                              <option key={r.id} value={r.id}>
-                                {r.name}
+                            {ROLE_OPTIONS.map((r) => (
+                              <option key={r.value} value={r.value}>
+                                {r.label}
                               </option>
                             ))}
                           </select>
@@ -767,7 +846,6 @@ const AdminViewEmployees: React.FC = () => {
                               value={dates.from}
                               onChange={(e) => handleDateChange(user.id, 'from', e.target.value)}
                               className="text-xs border border-gray-300 rounded-lg px-1.5 py-1 w-24 focus:ring-1 focus:ring-[#5f41b2] focus:border-transparent"
-                              title="From Date"
                             />
                             <span className="text-xs text-gray-400">to</span>
                             <input
@@ -775,7 +853,6 @@ const AdminViewEmployees: React.FC = () => {
                               value={dates.to}
                               onChange={(e) => handleDateChange(user.id, 'to', e.target.value)}
                               className="text-xs border border-gray-300 rounded-lg px-1.5 py-1 w-24 focus:ring-1 focus:ring-[#5f41b2] focus:border-transparent"
-                              title="To Date"
                             />
                           </div>
                           <button
@@ -791,7 +868,6 @@ const AdminViewEmployees: React.FC = () => {
                         <button
                           onClick={() => navigate(viewClientsUrl)}
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-600 text-blue-600 hover:text-white rounded-lg text-xs font-bold transition shadow-sm active:scale-95"
-                          title="View assigned clients"
                         >
                           <Eye className="w-3.5 h-3.5" />
                           <span>View Clients</span>
@@ -818,7 +894,6 @@ const AdminViewEmployees: React.FC = () => {
                             <button
                               onClick={() => openConfirm(user.id, 'deactivate')}
                               className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
-                              title="Deactivate Account"
                             >
                               <PowerOff className="w-4 h-4" />
                             </button>
@@ -826,7 +901,6 @@ const AdminViewEmployees: React.FC = () => {
                             <button
                               onClick={() => openConfirm(user.id, 'activate')}
                               className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition cursor-pointer"
-                              title="Activate Account"
                             >
                               <Power className="w-4 h-4" />
                             </button>
@@ -840,7 +914,6 @@ const AdminViewEmployees: React.FC = () => {
             </table>
           )}
 
-          {/* Infinite Scroll Sentinel */}
           <div ref={loaderRef} className="h-8 w-full flex items-center justify-center py-4">
             {loading && displayList.length > 0 && (
               <Loader2 className="w-6 h-6 animate-spin text-[#5f41b2]" />
@@ -854,9 +927,9 @@ const AdminViewEmployees: React.FC = () => {
         </div>
       </div>
 
-      {/* ======== EDIT MODAL ======== */}
+      {/* EDIT MODAL */}
       {showEditModal && selectedUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4 animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
             <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 shrink-0">
               <div className="flex items-center gap-2.5">
@@ -875,14 +948,13 @@ const AdminViewEmployees: React.FC = () => {
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto p-6 [scrollbar-width:thin]">
+
+            <div className="flex-1 overflow-y-auto p-6">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">First Name *</label>
                   <input
-                    type="text"
-                    name="firstName"
-                    value={formData.firstName}
+                    type="text" name="firstName" value={formData.firstName}
                     onChange={handleFormChange}
                     className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-[#5f41b2] focus:outline-none"
                     required
@@ -891,9 +963,7 @@ const AdminViewEmployees: React.FC = () => {
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">Last Name</label>
                   <input
-                    type="text"
-                    name="lastName"
-                    value={formData.lastName || ''}
+                    type="text" name="lastName" value={formData.lastName || ''}
                     onChange={handleFormChange}
                     className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-[#5f41b2] focus:outline-none"
                   />
@@ -901,9 +971,7 @@ const AdminViewEmployees: React.FC = () => {
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">Email *</label>
                   <input
-                    type="email"
-                    name="email"
-                    value={formData.email}
+                    type="email" name="email" value={formData.email}
                     onChange={handleFormChange}
                     className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-[#5f41b2] focus:outline-none"
                     required
@@ -912,30 +980,30 @@ const AdminViewEmployees: React.FC = () => {
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">Phone *</label>
                   <input
-                    type="text"
-                    name="phone"
-                    value={formData.phone}
+                    type="text" name="phone" value={formData.phone}
                     onChange={handleFormChange}
                     className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-[#5f41b2] focus:outline-none"
                     required
                   />
                 </div>
+
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">Department *</label>
                   <select
-                    name="departmentId"
-                    value={formData.departmentId}
+                    name="department"
+                    value={formData.department}
                     onChange={handleFormChange}
                     className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-[#5f41b2] focus:outline-none cursor-pointer"
                   >
-                    <option value={0}>Select Department</option>
-                    {departments.map((dept) => (
-                      <option key={dept.id} value={dept.id}>
-                        {dept.name}
+                    <option value="">Select Department</option>
+                    {DEPARTMENT_OPTIONS.map((d) => (
+                      <option key={d.value} value={d.value}>
+                        {d.label}
                       </option>
                     ))}
                   </select>
                 </div>
+
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">Team</label>
                   <select
@@ -943,33 +1011,40 @@ const AdminViewEmployees: React.FC = () => {
                     value={formData.teamId || ''}
                     onChange={handleFormChange}
                     className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-[#5f41b2] focus:outline-none cursor-pointer"
+                    disabled={!formData.department || teamsLoading}
                   >
-                    <option value="">No Team</option>
-                    {teams
-                      .filter((team) => team.departmentId === Number(formData.departmentId))
-                      .map((team) => (
-                        <option key={team.id} value={team.id}>
-                          {team.name}
-                        </option>
-                      ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Role</label>
-                  <select
-                    name="roleId"
-                    value={formData.roleId || ''}
-                    onChange={handleFormChange}
-                    className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-[#5f41b2] focus:outline-none cursor-pointer"
-                  >
-                    <option value="">No Role</option>
-                    {roles.map((role) => (
-                      <option key={role.id} value={role.id}>
-                        {role.name}
+                    <option value="">
+                      {teamsLoading
+                        ? 'Loading...'
+                        : !formData.department
+                        ? 'Select department first'
+                        : 'No Team'}
+                    </option>
+                    {departmentTeams.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
                       </option>
                     ))}
                   </select>
                 </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Role</label>
+                  <select
+                    name="role"
+                    value={formData.role || ''}
+                    onChange={handleFormChange}
+                    className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-[#5f41b2] focus:outline-none cursor-pointer"
+                  >
+                    <option value="">No Role</option>
+                    {ROLE_OPTIONS.map((r) => (
+                      <option key={r.value} value={r.value}>
+                        {r.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">Attendance Policy *</label>
                   <select
@@ -986,6 +1061,7 @@ const AdminViewEmployees: React.FC = () => {
                     ))}
                   </select>
                 </div>
+
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">Work Mode *</label>
                   <select
@@ -999,6 +1075,7 @@ const AdminViewEmployees: React.FC = () => {
                     <option value="HYBRID">Hybrid</option>
                   </select>
                 </div>
+
                 <div className="flex items-center gap-2 pt-6">
                   <input
                     type="checkbox"
@@ -1013,7 +1090,6 @@ const AdminViewEmployees: React.FC = () => {
                   </label>
                 </div>
 
-                {/* ✅ CallHippo Configuration Section */}
                 <div className="sm:col-span-2 bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3 mt-2">
                   <div className="flex items-center gap-2 pb-2 border-b border-slate-200">
                     <Phone className="w-4 h-4 text-[#5f41b2]" />
@@ -1046,7 +1122,6 @@ const AdminViewEmployees: React.FC = () => {
                         className="w-full px-3.5 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#5f41b2] focus:outline-none"
                       />
                     </div>
-
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1.5">Agent ID</label>
                       <input
@@ -1062,6 +1137,7 @@ const AdminViewEmployees: React.FC = () => {
                 </div>
               </div>
             </div>
+
             <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 flex justify-end gap-2 shrink-0">
               <button
                 onClick={closeEditModal}
@@ -1080,9 +1156,8 @@ const AdminViewEmployees: React.FC = () => {
         </div>
       )}
 
-      {/* ======== CONFIRM MODAL ======== */}
       {showConfirmModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4 animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-sm p-6">
             <div className="w-10 h-10 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center mb-4">
               <AlertTriangle className="w-5 h-5" />
@@ -1101,9 +1176,7 @@ const AdminViewEmployees: React.FC = () => {
               <button
                 onClick={handleConfirm}
                 className={`px-4 py-2 text-xs font-bold text-white rounded-xl transition cursor-pointer shadow-xs active:scale-95 ${
-                  confirmAction === 'activate'
-                    ? 'bg-emerald-600 hover:bg-emerald-700'
-                    : 'bg-rose-600 hover:bg-rose-700'
+                  confirmAction === 'activate' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'
                 }`}
               >
                 Yes, {confirmAction}
@@ -1124,9 +1197,6 @@ const AdminViewEmployees: React.FC = () => {
         loading={historyLoading}
       />
 
-      {/* ============================================================ */}
-      {/* ✅ Create Employee Modal                                     */}
-      {/* ============================================================ */}
       <CreateEmployeeModal
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}

@@ -15,36 +15,28 @@ import {
   fetchTeamById,
   fetchTeamsByDepartment,
   clearDepartmentTeams,
-  // ✅ Status filter thunk & reset
   fetchTeamsByStatus,
   resetStatusPagination,
   Team,
 } from '../../../store/slices/teamsSlice';
-import {
-  fetchUsers,
-  quickAssign,
-  User,
-} from '../../../store/slices/usersSlice';
-import { fetchDepartments } from '../../../store/slices/departmentsSlice';
+import { fetchUsers, quickAssign } from '../../../store/slices/usersSlice';
+import { DEPARTMENT_OPTIONS } from '../../../constants/enums';
 import { useToast } from '../../../contexts/ToastContext';
 import {
-  Users,
-  Loader2,
-  CheckCircle2,
-  XCircle,
-  Building2,
-  UserCheck,
-  Plus,
-  Edit,
-  X,
-  RefreshCw,
-  AlertTriangle,
-  Eye,
-  UserPlus,
-  UserPlus2,
-  FilterX,
-  Search,
+  Users, Loader2, CheckCircle2, XCircle, Building2, UserCheck,
+  Plus, Edit, X, RefreshCw, AlertTriangle, Eye, UserPlus,
+  UserPlus2, FilterX, Search, ChevronDown,
 } from 'lucide-react';
+
+// ============================================================
+// ✅ Helper: robust dept resolution for a team
+// ============================================================
+const extractDept = (team: any): string | null => {
+  if (!team) return null;
+  const d = team.department || team.departmentName;
+  if (!d || d === '—') return null;
+  return String(d);
+};
 
 const AdminViewTeams: React.FC = () => {
   const dispatch = useDispatch<AppDispatch>();
@@ -52,11 +44,9 @@ const AdminViewTeams: React.FC = () => {
   const { showToast } = useToast();
   const [searchParams] = useSearchParams();
 
-  // Get query params from URL
   const teamIdParam = searchParams.get('teamId');
-  const departmentIdParam = searchParams.get('departmentId');
+  const departmentEnumParam = searchParams.get('department');
 
-  // Redux state
   const {
     list: allTeams,
     loading,
@@ -69,123 +59,106 @@ const AdminViewTeams: React.FC = () => {
     statusHasMore,
   } = useSelector((state: RootState) => state.teams);
 
-  const { list: departments } = useSelector((state: RootState) => state.departments);
-  const { list: allUsers, loading: usersLoading } = useSelector((state: RootState) => state.users);
+  const { list: allUsers, loading: usersLoading } = useSelector(
+    (state: RootState) => state.users
+  );
 
-  // Local state
   const [showTeamModal, setShowTeamModal] = useState(false);
   const [showUsersModal, setShowUsersModal] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [showAssignLeadModal, setShowAssignLeadModal] = useState(false);
-
-  // ✅ NEW: Assign Existing Employee Modal State
   const [showAssignEmployeeModal, setShowAssignEmployeeModal] = useState(false);
+
   const [assignEmployeeTeamId, setAssignEmployeeTeamId] = useState<number | null>(null);
   const [assignEmployeeTeamName, setAssignEmployeeTeamName] = useState('');
-  const [assignEmployeeDeptId, setAssignEmployeeDeptId] = useState<number | null>(null);
+  const [assignEmployeeDept, setAssignEmployeeDept] = useState<string | null>(null);
   const [selectedEmpUserId, setSelectedEmpUserId] = useState<number | ''>('');
   const [assignEmpSearch, setAssignEmpSearch] = useState('');
   const [isAssigningEmp, setIsAssigningEmp] = useState(false);
 
-  // Form state
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
   const [formName, setFormName] = useState('');
-  const [formDepartmentId, setFormDepartmentId] = useState<number | ''>('');
+  const [formDepartment, setFormDepartment] = useState<string>('');
 
-  // Confirm state
   const [confirmAction, setConfirmAction] = useState<'activate' | 'deactivate' | null>(null);
   const [confirmTeamId, setConfirmTeamId] = useState<number | null>(null);
 
-  // User view state
   const [viewingTeam, setViewingTeam] = useState<Team | null>(null);
 
-  // Assign Lead state
   const [assignTeamId, setAssignTeamId] = useState<number | null>(null);
   const [assignTeamName, setAssignTeamName] = useState('');
   const [assignEmployeeId, setAssignEmployeeId] = useState<number | ''>('');
   const [isAssigning, setIsAssigning] = useState(false);
-  const [overrideLead, setOverrideLead] = useState<boolean>(false);
+  const [overrideLead, setOverrideLead] = useState(false);
 
-  // Status filter state
   const [showActive, setShowActive] = useState(true);
 
-  // Filter & Highlight state
   const [highlightTeamId, setHighlightTeamId] = useState<number | null>(null);
-  const [filterDepartmentId, setFilterDepartmentId] = useState<number | null>(null);
+  const [filterDepartment, setFilterDepartment] = useState<string | null>(null);
   const [isFiltered, setIsFiltered] = useState(false);
 
-  // --------------------------------
-  // 1. Load initial data
-  // --------------------------------
+  // ============================================================
+  // Load users + cleanup
+  // ============================================================
   useEffect(() => {
-    dispatch(fetchDepartments());
     dispatch(fetchUsers());
-
     return () => {
       dispatch(clearDepartmentTeams());
       dispatch(resetStatusPagination());
     };
   }, [dispatch]);
 
-  // --------------------------------
-  // 2. Handle URL params
-  // --------------------------------
+  // ============================================================
+  // URL params
+  // ============================================================
   useEffect(() => {
     const teamId = teamIdParam ? parseInt(teamIdParam, 10) : null;
-    const deptId = departmentIdParam ? parseInt(departmentIdParam, 10) : null;
+    const deptEnum = departmentEnumParam;
 
-    if (deptId && !isNaN(deptId)) {
+    if (deptEnum) {
       setIsFiltered(true);
-      setFilterDepartmentId(deptId);
+      setFilterDepartment(deptEnum);
       dispatch(resetStatusPagination());
-      dispatch(fetchTeamsByDepartment(deptId));
+      dispatch(fetchTeamsByDepartment(deptEnum));
       return;
     }
 
     if (teamId && !isNaN(teamId)) {
       setHighlightTeamId(teamId);
       setIsFiltered(true);
-
       const existingTeam = allTeams.find((t) => t.id === teamId);
-
       if (existingTeam) {
-        setFilterDepartmentId(existingTeam.departmentId);
-        dispatch(fetchTeamsByDepartment(existingTeam.departmentId));
+        setFilterDepartment(existingTeam.department);
+        dispatch(fetchTeamsByDepartment(existingTeam.department));
       } else {
         dispatch(fetchTeamById(teamId))
           .unwrap()
           .then((team) => {
-            setFilterDepartmentId(team.departmentId);
-            dispatch(fetchTeamsByDepartment(team.departmentId));
+            setFilterDepartment(team.department);
+            dispatch(fetchTeamsByDepartment(team.department));
           })
           .catch((err) => {
             showToast(err || 'Team not found', 'error');
             setIsFiltered(false);
             setHighlightTeamId(null);
-            setFilterDepartmentId(null);
+            setFilterDepartment(null);
             dispatch(resetStatusPagination());
             dispatch(fetchTeamsByStatus({ active: true, page: 0, size: 10, append: false }));
           });
       }
-    } else if (!deptId) {
+    } else if (!deptEnum) {
       setIsFiltered(false);
       setHighlightTeamId(null);
-      setFilterDepartmentId(null);
+      setFilterDepartment(null);
       dispatch(resetStatusPagination());
       dispatch(fetchTeamsByStatus({ active: showActive, page: 0, size: 10, append: false }));
     }
-  }, [teamIdParam, departmentIdParam, dispatch, showToast, allTeams, showActive]);
+  }, [teamIdParam, departmentEnumParam, dispatch, showToast, allTeams, showActive]);
 
-  // --------------------------------
-  // 3. Determine which teams to display
-  // --------------------------------
   const displayedTeams = isFiltered ? departmentTeams : statusFilteredTeams;
   const totalCount = isFiltered ? departmentTeams.length : statusTotal;
 
-  // --------------------------------
-  // 4. Load More
-  // --------------------------------
   const loadMore = () => {
     if (isFiltered || !statusHasMore || loading) return;
     dispatch(fetchTeamsByStatus({
@@ -196,13 +169,10 @@ const AdminViewTeams: React.FC = () => {
     }));
   };
 
-  // --------------------------------
-  // 5. Toggle Active/Inactive
-  // --------------------------------
   const handleToggleFilter = (active: boolean) => {
     if (isFiltered) {
       setIsFiltered(false);
-      setFilterDepartmentId(null);
+      setFilterDepartment(null);
       setHighlightTeamId(null);
       navigate('/admin/view-teams', { replace: true });
     }
@@ -211,26 +181,23 @@ const AdminViewTeams: React.FC = () => {
     dispatch(fetchTeamsByStatus({ active, page: 0, size: 10, append: false }));
   };
 
-  // --------------------------------
-  // 6. Clear filter
-  // --------------------------------
   const clearFilter = () => {
     setIsFiltered(false);
     setHighlightTeamId(null);
-    setFilterDepartmentId(null);
+    setFilterDepartment(null);
     navigate('/admin/view-teams', { replace: true });
     dispatch(resetStatusPagination());
     dispatch(fetchTeamsByStatus({ active: showActive, page: 0, size: 10, append: false }));
   };
 
-  // --------------------------------
-  // 7. Modal / Action Handlers
-  // --------------------------------
+  // ============================================================
+  // Team modal
+  // ============================================================
   const openCreateModal = () => {
     setModalMode('create');
     setSelectedTeam(null);
     setFormName('');
-    setFormDepartmentId(filterDepartmentId || '');
+    setFormDepartment(filterDepartment || '');
     setShowTeamModal(true);
   };
 
@@ -238,7 +205,7 @@ const AdminViewTeams: React.FC = () => {
     setModalMode('edit');
     setSelectedTeam(team);
     setFormName(team.name);
-    setFormDepartmentId(team.departmentId);
+    setFormDepartment(team.department || '');
     setShowTeamModal(true);
   };
 
@@ -246,29 +213,32 @@ const AdminViewTeams: React.FC = () => {
     setShowTeamModal(false);
     setSelectedTeam(null);
     setFormName('');
-    setFormDepartmentId('');
+    setFormDepartment('');
   };
 
   const handleSaveTeam = async () => {
-    if (!formName.trim() || !formDepartmentId) {
-      alert('Please fill in all fields');
+    if (!formName.trim() || !formDepartment) {
+      showToast('Please fill in all fields', 'warning');
       return;
     }
     try {
+      const payload = { name: formName.trim(), department: formDepartment };
       if (modalMode === 'create') {
-        await dispatch(createTeam({ name: formName.trim(), departmentId: Number(formDepartmentId) })).unwrap();
+        await dispatch(createTeam(payload)).unwrap();
+        showToast('Team created successfully!', 'success');
       } else if (selectedTeam) {
-        await dispatch(updateTeam({ id: selectedTeam.id, name: formName.trim(), departmentId: Number(formDepartmentId) })).unwrap();
+        await dispatch(updateTeam({ id: selectedTeam.id, ...payload })).unwrap();
+        showToast('Team updated successfully!', 'success');
       }
       closeTeamModal();
-      if (isFiltered && filterDepartmentId) {
-        dispatch(fetchTeamsByDepartment(filterDepartmentId));
+      if (isFiltered && filterDepartment) {
+        dispatch(fetchTeamsByDepartment(filterDepartment));
       } else {
         dispatch(resetStatusPagination());
         dispatch(fetchTeamsByStatus({ active: showActive, page: 0, size: 10, append: false }));
       }
-    } catch (err) {
-      alert('Failed to save team: ' + (err as string));
+    } catch (err: any) {
+      showToast(err || 'Failed to save team', 'error');
     }
   };
 
@@ -289,28 +259,25 @@ const AdminViewTeams: React.FC = () => {
       setShowConfirmModal(false);
       setConfirmTeamId(null);
       setConfirmAction(null);
-      if (isFiltered && filterDepartmentId) {
-        dispatch(fetchTeamsByDepartment(filterDepartmentId));
+      if (isFiltered && filterDepartment) {
+        dispatch(fetchTeamsByDepartment(filterDepartment));
       } else {
         dispatch(resetStatusPagination());
         dispatch(fetchTeamsByStatus({ active: showActive, page: 0, size: 10, append: false }));
       }
-    } catch (err) {
-      alert('Failed to perform action: ' + (err as string));
+    } catch (err: any) {
+      showToast(err || 'Failed to perform action', 'error');
     }
   };
 
   const handleViewUsers = async (team: Team) => {
-    if (!team || !team.id) {
-      alert('Invalid team selected');
-      return;
-    }
+    if (!team || !team.id) return;
     setViewingTeam(team);
     setShowUsersModal(true);
     try {
       await dispatch(fetchUsersByTeam(team.id)).unwrap();
-    } catch (err) {
-      alert('Failed to fetch team users: ' + (err as string));
+    } catch (err: any) {
+      showToast(err || 'Failed to fetch team users', 'error');
     }
   };
 
@@ -352,8 +319,8 @@ const AdminViewTeams: React.FC = () => {
       setAssignTeamId(null);
       setAssignEmployeeId('');
       setOverrideLead(false);
-      if (isFiltered && filterDepartmentId) {
-        dispatch(fetchTeamsByDepartment(filterDepartmentId));
+      if (isFiltered && filterDepartment) {
+        dispatch(fetchTeamsByDepartment(filterDepartment));
       } else {
         dispatch(resetStatusPagination());
         dispatch(fetchTeamsByStatus({ active: showActive, page: 0, size: 10, append: false }));
@@ -366,39 +333,52 @@ const AdminViewTeams: React.FC = () => {
   };
 
   // ============================================================
-  // ✅ NEW: Assign Existing Employee Handlers
+  // ✅ ASSIGN EXISTING EMPLOYEE
   // ============================================================
   const openAssignEmployeeModal = (team: Team) => {
+    console.log('📋 Opening assign employee modal for team:', team);
+
     setAssignEmployeeTeamId(team.id);
     setAssignEmployeeTeamName(team.name);
-    setAssignEmployeeDeptId(team.departmentId);
+
+    // Try to resolve department from team object itself
+    let dept = extractDept(team);
+
+    // If not found, try from stores
+    if (!dept) {
+      const found =
+        allTeams.find((t) => t.id === team.id) ||
+        departmentTeams.find((t) => t.id === team.id) ||
+        statusFilteredTeams.find((t) => t.id === team.id);
+      dept = extractDept(found);
+    }
+
+    // Try filter department as last resort
+    if (!dept && filterDepartment) dept = filterDepartment;
+
+    console.log('   → resolved dept:', dept);
+    setAssignEmployeeDept(dept);
     setSelectedEmpUserId('');
     setAssignEmpSearch('');
     setShowAssignEmployeeModal(true);
 
-    // Ensure all users are loaded
-    if (allUsers.length === 0) {
-      dispatch(fetchUsers());
-    }
+    if (allUsers.length === 0) dispatch(fetchUsers());
   };
 
   const closeAssignEmployeeModal = () => {
     setShowAssignEmployeeModal(false);
     setAssignEmployeeTeamId(null);
     setAssignEmployeeTeamName('');
-    setAssignEmployeeDeptId(null);
+    setAssignEmployeeDept(null);
     setSelectedEmpUserId('');
     setAssignEmpSearch('');
     setIsAssigningEmp(false);
   };
 
-  // ✅ Filter available employees: active + not already in this team + same department
   const availableEmployees = useMemo(() => {
     if (!assignEmployeeTeamId) return [];
-    // Users already in this team can be identified by teamId
     return allUsers.filter((u) => {
       if (!u.active) return false;
-      // Exclude users already in this team
       if (u.teamId === assignEmployeeTeamId) return false;
       return true;
     });
@@ -422,20 +402,62 @@ const AdminViewTeams: React.FC = () => {
       showToast('Please select an employee to assign', 'warning');
       return;
     }
-    if (!assignEmployeeTeamId || !assignEmployeeDeptId) {
+    if (!assignEmployeeTeamId) {
       showToast('Team information missing. Please refresh.', 'error');
       return;
     }
+
+    // ============================================================
+    // ✅ ROBUST DEBT RESOLUTION
+    // ============================================================
+    let dept: string | null = assignEmployeeDept;
+
+    // 1. Try stores
+    if (!dept) {
+      const found =
+        allTeams.find((t) => t.id === assignEmployeeTeamId) ||
+        departmentTeams.find((t) => t.id === assignEmployeeTeamId) ||
+        statusFilteredTeams.find((t) => t.id === assignEmployeeTeamId);
+      dept = extractDept(found);
+    }
+
+    // 2. Filter department fallback
+    if (!dept && filterDepartment) dept = filterDepartment;
+
+    // 3. ✅ API fallback — guaranteed to work
+    if (!dept) {
+      try {
+        console.log('🌐 Fetching team from API:', assignEmployeeTeamId);
+        const res: any = await dispatch(fetchTeamById(assignEmployeeTeamId)).unwrap();
+        console.log('🌐 Team API response:', res);
+        dept = extractDept(res);
+      } catch (e) {
+        console.error('Failed to fetch team details:', e);
+      }
+    }
+
+    console.log('🔍 Final resolved dept:', dept, 'for teamId:', assignEmployeeTeamId);
+
+    if (!dept) {
+      showToast(
+        'Team department info missing. Please refresh or contact admin.',
+        'error'
+      );
+      return;
+    }
+
+    const payload = {
+      teamId: assignEmployeeTeamId,
+      department: dept,
+    };
+    console.log('📤 quickAssign payload:', { userId: selectedEmpUserId, data: payload });
 
     setIsAssigningEmp(true);
     try {
       await dispatch(
         quickAssign({
           userId: Number(selectedEmpUserId),
-          data: {
-            teamId: assignEmployeeTeamId,
-            departmentId: assignEmployeeDeptId,
-          },
+          data: payload,
         })
       ).unwrap();
 
@@ -444,18 +466,18 @@ const AdminViewTeams: React.FC = () => {
         ? `${emp.firstName} ${emp.lastName || ''}`.trim()
         : 'Employee';
 
-      showToast(`${empName} assigned to ${assignEmployeeTeamName} successfully!`, 'success');
-
+      showToast(
+        `${empName} assigned to ${assignEmployeeTeamName} successfully!`,
+        'success'
+      );
       closeAssignEmployeeModal();
 
-      // Refresh views
-      if (isFiltered && filterDepartmentId) {
-        dispatch(fetchTeamsByDepartment(filterDepartmentId));
+      if (isFiltered && filterDepartment) {
+        dispatch(fetchTeamsByDepartment(filterDepartment));
       } else {
         dispatch(resetStatusPagination());
         dispatch(fetchTeamsByStatus({ active: showActive, page: 0, size: 10, append: false }));
       }
-      // Refresh users list to reflect updated teamId
       dispatch(fetchUsers());
     } catch (err: any) {
       showToast(err || 'Failed to assign employee to team', 'error');
@@ -464,25 +486,24 @@ const AdminViewTeams: React.FC = () => {
     }
   };
 
-  // --------------------------------
-  // 8. Render
-  // --------------------------------
   const isLoading = loading && displayedTeams.length === 0;
   const hasError = error;
   const noTeams = !isLoading && !hasError && displayedTeams.length === 0;
 
+  const departmentLabel = (deptEnum?: string | null) =>
+    DEPARTMENT_OPTIONS.find((d) => d.value === deptEnum)?.label || deptEnum || '—';
+
   return (
     <div className="w-full h-full flex flex-col font-sans overflow-hidden">
-      {/* Main Card */}
       <div className="flex-1 bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col min-h-0 overflow-hidden">
         {/* Header */}
         <div className="p-4 border-b border-gray-100 flex flex-wrap justify-between items-center shrink-0 bg-gray-50/50 gap-2">
           <h2 className="text-lg font-bold text-[#1b2559] flex items-center gap-2">
             <Users className="w-5 h-5 text-[#5f41b2]" />
             Teams ({totalCount})
-            {isFiltered && (
-              <span className="text-xs font-normal text-gray-400 ml-2">
-                (filtered by department)
+            {isFiltered && filterDepartment && (
+              <span className="text-xs font-medium text-gray-500 ml-2">
+                ({departmentLabel(filterDepartment)})
               </span>
             )}
           </h2>
@@ -493,9 +514,7 @@ const AdminViewTeams: React.FC = () => {
                 <button
                   onClick={() => handleToggleFilter(true)}
                   className={`px-3 py-1.5 text-xs font-bold transition ${
-                    showActive
-                      ? 'bg-[#5f41b2] text-white'
-                      : 'bg-white text-gray-500 hover:bg-gray-50'
+                    showActive ? 'bg-[#5f41b2] text-white' : 'bg-white text-gray-500 hover:bg-gray-50'
                   }`}
                 >
                   Active
@@ -503,9 +522,7 @@ const AdminViewTeams: React.FC = () => {
                 <button
                   onClick={() => handleToggleFilter(false)}
                   className={`px-3 py-1.5 text-xs font-bold transition ${
-                    !showActive
-                      ? 'bg-[#5f41b2] text-white'
-                      : 'bg-white text-gray-500 hover:bg-gray-50'
+                    !showActive ? 'bg-[#5f41b2] text-white' : 'bg-white text-gray-500 hover:bg-gray-50'
                   }`}
                 >
                   Inactive
@@ -517,7 +534,6 @@ const AdminViewTeams: React.FC = () => {
               <button
                 onClick={clearFilter}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-700 text-sm font-semibold rounded-lg transition shadow-sm"
-                title="Show all teams"
               >
                 <FilterX className="w-4 h-4" />
                 Clear Filter
@@ -551,12 +567,10 @@ const AdminViewTeams: React.FC = () => {
             <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-2">
               <Users className="w-12 h-12 opacity-20" />
               <p className="text-sm font-semibold">
-                {isFiltered
-                  ? 'No teams found in this department'
-                  : `No ${showActive ? 'active' : 'inactive'} teams found`}
+                {isFiltered ? 'No teams found in this department' : `No ${showActive ? 'active' : 'inactive'} teams found`}
               </p>
               <button onClick={openCreateModal} className="text-[#5f41b2] text-sm underline">
-                {isFiltered ? 'Create a team in this department' : 'Create your first team'}
+                Create a team
               </button>
             </div>
           ) : (
@@ -576,13 +590,12 @@ const AdminViewTeams: React.FC = () => {
                   <tbody className="divide-y divide-gray-50">
                     {displayedTeams.map((team) => {
                       const isHighlighted = highlightTeamId === team.id;
+                      const deptForDisplay = extractDept(team) || '';
                       return (
                         <tr
                           key={team.id}
                           className={`transition group ${
-                            isHighlighted
-                              ? 'bg-blue-100 border-l-4 border-[#5f41b2]'
-                              : 'hover:bg-blue-50/30'
+                            isHighlighted ? 'bg-blue-100 border-l-4 border-[#5f41b2]' : 'hover:bg-blue-50/30'
                           }`}
                         >
                           <td className="p-3 font-bold text-[#1b2559]">#{team.id}</td>
@@ -590,7 +603,7 @@ const AdminViewTeams: React.FC = () => {
                           <td className="p-3">
                             <div className="flex items-center gap-1.5 text-sm text-gray-700">
                               <Building2 className="w-3.5 h-3.5 text-gray-400" />
-                              {team.departmentName || '—'}
+                              {departmentLabel(deptForDisplay)}
                             </div>
                           </td>
                           <td className="p-3">
@@ -630,7 +643,6 @@ const AdminViewTeams: React.FC = () => {
                               >
                                 <UserPlus className="w-4 h-4" />
                               </button>
-                              {/* ✅ NEW: Assign Existing Employee Button */}
                               <button
                                 onClick={() => openAssignEmployeeModal(team)}
                                 className="p-1.5 rounded-lg hover:bg-emerald-100 text-emerald-600 transition"
@@ -683,20 +695,15 @@ const AdminViewTeams: React.FC = () => {
                   </button>
                 </div>
               )}
-              {!isFiltered && !statusHasMore && displayedTeams.length > 0 && (
-                <div className="text-center text-xs text-gray-400 py-4">
-                  No more teams to load.
-                </div>
-              )}
             </>
           )}
         </div>
       </div>
 
-      {/* ======== CREATE/EDIT MODAL ======== */}
+      {/* ======== CREATE/EDIT TEAM MODAL ======== */}
       {showTeamModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-xl font-bold text-[#1b2559]">
                 {modalMode === 'create' ? 'Create New Team' : 'Edit Team'}
@@ -718,27 +725,33 @@ const AdminViewTeams: React.FC = () => {
               </div>
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-1">Department</label>
-                <select
-                  value={formDepartmentId}
-                  onChange={(e) => setFormDepartmentId(e.target.value ? Number(e.target.value) : '')}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#5f41b2] focus:border-transparent"
-                >
-                  <option value="">Select department</option>
-                  {departments.map((dept) => (
-                    <option key={dept.id} value={dept.id}>
-                      {dept.name}
-                    </option>
-                  ))}
-                </select>
+                <div className="relative">
+                  <select
+                    value={formDepartment}
+                    onChange={(e) => setFormDepartment(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#5f41b2] focus:border-transparent appearance-none bg-white pr-10"
+                  >
+                    <option value="">Select department</option>
+                    {DEPARTMENT_OPTIONS.map((d) => (
+                      <option key={d.value} value={d.value}>
+                        {d.label}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                </div>
               </div>
             </div>
             <div className="flex justify-end gap-2 mt-6">
-              <button onClick={closeTeamModal} className="px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-100 rounded-lg transition">
+              <button
+                onClick={closeTeamModal}
+                className="px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-100 rounded-lg transition"
+              >
                 Cancel
               </button>
               <button
                 onClick={handleSaveTeam}
-                disabled={!formName.trim() || !formDepartmentId}
+                disabled={!formName.trim() || !formDepartment}
                 className="px-4 py-2 text-sm font-semibold text-white bg-[#5f41b2] rounded-lg hover:bg-[#4e3596] transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {modalMode === 'create' ? 'Create' : 'Update'}
@@ -751,16 +764,19 @@ const AdminViewTeams: React.FC = () => {
       {/* ======== CONFIRM MODAL ======== */}
       {showConfirmModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6">
             <div className="flex items-center gap-3 mb-4 text-amber-600">
               <AlertTriangle className="w-6 h-6" />
               <h3 className="text-lg font-bold text-[#1b2559]">Confirm</h3>
             </div>
             <p className="text-gray-700 mb-4">
-              Are you sure you want to <span className="font-semibold">{confirmAction === 'activate' ? 'activate' : 'deactivate'}</span> this team?
+              Are you sure you want to <span className="font-semibold">{confirmAction}</span> this team?
             </p>
             <div className="flex justify-end gap-2">
-              <button onClick={() => setShowConfirmModal(false)} className="px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-100 rounded-lg transition">
+              <button
+                onClick={() => setShowConfirmModal(false)}
+                className="px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-100 rounded-lg transition"
+              >
                 Cancel
               </button>
               <button
@@ -779,7 +795,7 @@ const AdminViewTeams: React.FC = () => {
       {/* ======== VIEW USERS MODAL ======== */}
       {showUsersModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col p-6 animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col p-6">
             <div className="flex justify-between items-center mb-4 shrink-0">
               <h3 className="text-xl font-bold text-[#1b2559] flex items-center gap-2">
                 <Users className="w-5 h-5 text-[#5f41b2]" />
@@ -794,7 +810,7 @@ const AdminViewTeams: React.FC = () => {
                 <p className="text-center text-gray-400 py-8">No active users in this team.</p>
               ) : (
                 <table className="w-full text-left text-sm">
-                  <thead className="bg-gray-50/80 sticky top-0 z-10">
+                  <thead className="bg-gray-50/80 sticky top-0">
                     <tr className="text-xs font-bold text-gray-400 uppercase tracking-wider">
                       <th className="p-2">Employee Code</th>
                       <th className="p-2">Name</th>
@@ -806,9 +822,7 @@ const AdminViewTeams: React.FC = () => {
                     {teamUsers.map((user) => (
                       <tr key={user.employeeCode}>
                         <td className="p-2 font-mono text-xs text-gray-600">{user.employeeCode}</td>
-                        <td className="p-2 font-medium text-gray-800">
-                          {user.firstName} {user.lastName}
-                        </td>
+                        <td className="p-2 font-medium text-gray-800">{user.firstName} {user.lastName}</td>
                         <td className="p-2 text-gray-600">{user.email}</td>
                         <td className="p-2 text-center">
                           {user.active ? (
@@ -834,7 +848,7 @@ const AdminViewTeams: React.FC = () => {
       {/* ======== ASSIGN LEAD MODAL ======== */}
       {showAssignLeadModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-xl font-bold text-[#1b2559] flex items-center gap-2">
                 <UserPlus className="w-5 h-5 text-[#5f41b2]" />
@@ -855,11 +869,6 @@ const AdminViewTeams: React.FC = () => {
 
             <p className="text-sm text-gray-500 mb-4">
               Team: <strong>{assignTeamName}</strong>
-              {assignEmployeeId && (
-                <span className="block text-xs text-amber-600 mt-1">
-                  ⚠️ Current lead will be replaced (override enabled)
-                </span>
-              )}
             </p>
 
             <div className="mb-4">
@@ -871,14 +880,7 @@ const AdminViewTeams: React.FC = () => {
               >
                 <option value="">Select an employee...</option>
                 {allUsers
-                  .filter(
-                    (u) =>
-                      u.active &&
-                      u.departmentId ===
-                        (isFiltered
-                          ? filterDepartmentId
-                          : allTeams.find((t) => t.id === assignTeamId)?.departmentId)
-                  )
+                  .filter((u) => u.active && u.department === filterDepartment)
                   .map((u) => (
                     <option key={u.id} value={u.id}>
                       {u.firstName} {u.lastName || ''} ({u.employeeCode})
@@ -897,7 +899,7 @@ const AdminViewTeams: React.FC = () => {
                 disabled={isAssigning}
               />
               <label htmlFor="overrideLead" className="text-sm font-medium text-amber-800">
-                Override existing team lead (force reassign)
+                Override existing team lead
               </label>
             </div>
 
@@ -917,17 +919,17 @@ const AdminViewTeams: React.FC = () => {
               <button
                 onClick={handleAssignLead}
                 disabled={isAssigning || !assignEmployeeId}
-                className="px-4 py-2 text-sm font-semibold text-white bg-[#5f41b2] rounded-lg hover:bg-[#4e3596] transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                className="px-4 py-2 text-sm font-semibold text-white bg-[#5f41b2] rounded-lg hover:bg-[#4e3596] transition disabled:opacity-50 flex items-center gap-2"
               >
                 {isAssigning ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    {assignEmployeeId ? 'Reassigning...' : 'Assigning...'}
+                    Saving...
                   </>
                 ) : (
                   <>
                     <UserCheck className="w-4 h-4" />
-                    {assignEmployeeId ? 'Reassign Lead' : 'Assign Lead'}
+                    Assign
                   </>
                 )}
               </button>
@@ -936,13 +938,10 @@ const AdminViewTeams: React.FC = () => {
         </div>
       )}
 
-      {/* ============================================================ */}
-      {/* ✅ NEW: ASSIGN EXISTING EMPLOYEE MODAL                        */}
-      {/* ============================================================ */}
+      {/* ======== ASSIGN EXISTING EMPLOYEE MODAL ======== */}
       {showAssignEmployeeModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden border border-slate-100">
-            {/* Modal Header */}
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
             <div className="bg-white px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center">
@@ -951,39 +950,32 @@ const AdminViewTeams: React.FC = () => {
                 <div>
                   <h3 className="text-lg font-bold text-[#1b2559]">Assign Existing Employee</h3>
                   <p className="text-xs text-slate-500">
-                    Add an employee to{' '}
-                    <span className="font-bold text-[#5f41b2]">{assignEmployeeTeamName}</span>
-                    {assignEmployeeDeptId && (
-                      <span className="text-slate-400"> • {departments.find(d => d.id === assignEmployeeDeptId)?.name}</span>
-                    )}
+                    Add an employee to <span className="font-bold text-[#5f41b2]">{assignEmployeeTeamName}</span>
                   </p>
                 </div>
               </div>
               <button
                 onClick={closeAssignEmployeeModal}
-                className="p-2 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition cursor-pointer"
+                className="p-2 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition"
                 disabled={isAssigningEmp}
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Modal Body */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-4 [scrollbar-width:thin]">
-              {/* Search */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-4">
               <div className="relative">
                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
                   type="text"
-                  placeholder="Search employees by name, code, email or department..."
+                  placeholder="Search employees..."
                   value={assignEmpSearch}
                   onChange={(e) => setAssignEmpSearch(e.target.value)}
-                  className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                  className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   autoFocus
                 />
               </div>
 
-              {/* Employee List */}
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
                   Select Employee ({filteredAvailableEmployees.length} available)
@@ -997,14 +989,10 @@ const AdminViewTeams: React.FC = () => {
                 ) : filteredAvailableEmployees.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-12 text-slate-400 gap-2 bg-slate-50 border border-dashed border-slate-200 rounded-xl">
                     <Users className="w-10 h-10 opacity-20" />
-                    <p className="text-sm font-semibold">
-                      {assignEmpSearch
-                        ? 'No matching employees found'
-                        : 'All active employees are already in this team'}
-                    </p>
+                    <p className="text-sm font-semibold">No matching employees found</p>
                   </div>
                 ) : (
-                  <div className="max-h-[380px] overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100 [scrollbar-width:thin]">
+                  <div className="max-h-[380px] overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100">
                     {filteredAvailableEmployees.map((emp) => {
                       const isSelected = selectedEmpUserId === emp.id;
                       const fullName = `${emp.firstName} ${emp.lastName || ''}`.trim();
@@ -1014,7 +1002,7 @@ const AdminViewTeams: React.FC = () => {
                           key={emp.id}
                           onClick={() => setSelectedEmpUserId(emp.id)}
                           disabled={isAssigningEmp}
-                          className={`w-full text-left p-3.5 flex items-center justify-between gap-3 transition cursor-pointer ${
+                          className={`w-full text-left p-3.5 flex items-center justify-between gap-3 transition ${
                             isSelected
                               ? 'bg-emerald-50 border-l-4 border-l-emerald-600'
                               : 'hover:bg-slate-50 border-l-4 border-l-transparent'
@@ -1022,7 +1010,7 @@ const AdminViewTeams: React.FC = () => {
                         >
                           <div className="flex items-center gap-3 min-w-0 flex-1">
                             <div
-                              className={`w-10 h-10 rounded-[5px] flex items-center justify-center font-extrabold text-sm shrink-0 border ${
+                              className={`w-10 h-10 rounded-lg flex items-center justify-center font-extrabold text-sm shrink-0 border ${
                                 isSelected
                                   ? 'bg-emerald-600 text-white border-emerald-700'
                                   : 'bg-slate-100 text-slate-700 border-slate-200'
@@ -1031,9 +1019,7 @@ const AdminViewTeams: React.FC = () => {
                               {emp.firstName.charAt(0).toUpperCase()}
                             </div>
                             <div className="min-w-0 flex-1">
-                              <p className="font-bold text-[#0F172A] text-sm truncate">
-                                {fullName}
-                              </p>
+                              <p className="font-bold text-[#0F172A] text-sm truncate">{fullName}</p>
                               <p className="text-[11px] text-slate-400 font-mono font-semibold mt-0.5">
                                 #{emp.employeeCode}
                               </p>
@@ -1050,16 +1036,9 @@ const AdminViewTeams: React.FC = () => {
                                     {emp.teamName}
                                   </span>
                                 )}
-                                {emp.roleName && (
-                                  <span className="flex items-center gap-1 truncate">
-                                    <UserCheck className="w-3 h-3 text-slate-400 shrink-0" />
-                                    {emp.roleName}
-                                  </span>
-                                )}
                               </div>
                             </div>
                           </div>
-
                           {isSelected && (
                             <span className="w-6 h-6 rounded-full bg-emerald-600 flex items-center justify-center text-white shrink-0">
                               <CheckCircle2 className="w-4 h-4" />
@@ -1071,37 +1050,14 @@ const AdminViewTeams: React.FC = () => {
                   </div>
                 )}
               </div>
-
-              {/* Selected Preview */}
-              {selectedEmpUserId && (
-                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3.5">
-                  <p className="text-[11px] font-bold text-emerald-700 uppercase tracking-wider mb-1">
-                    Ready to Assign
-                  </p>
-                  {(() => {
-                    const emp = allUsers.find((u) => u.id === Number(selectedEmpUserId));
-                    if (!emp) return null;
-                    return (
-                      <p className="text-sm font-bold text-emerald-900">
-                        {emp.firstName} {emp.lastName || ''}{' '}
-                        <span className="font-normal text-emerald-700">
-                          ({emp.employeeCode})
-                        </span>{' '}
-                        → <span className="font-bold">{assignEmployeeTeamName}</span>
-                      </p>
-                    );
-                  })()}
-                </div>
-              )}
             </div>
 
-            {/* Modal Footer */}
             <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 flex justify-end gap-2.5 shrink-0">
               <button
                 type="button"
                 onClick={closeAssignEmployeeModal}
                 disabled={isAssigningEmp}
-                className="min-h-[44px] px-5 py-2.5 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-200 transition disabled:opacity-50 cursor-pointer"
+                className="min-h-[44px] px-5 py-2.5 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-200 transition disabled:opacity-50"
               >
                 Cancel
               </button>
@@ -1109,7 +1065,7 @@ const AdminViewTeams: React.FC = () => {
                 type="button"
                 onClick={handleAssignExistingEmployee}
                 disabled={isAssigningEmp || !selectedEmpUserId}
-                className="min-h-[44px] flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl text-sm font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition shadow-sm disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer active:scale-95"
+                className="min-h-[44px] flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl text-sm font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isAssigningEmp ? (
                   <>

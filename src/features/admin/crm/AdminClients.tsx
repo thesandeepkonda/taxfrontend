@@ -74,6 +74,19 @@ const PAGE_SIZE = 10;
 type TabType = 'ALL' | 'FOLLOW_UPS' | 'NOT_LIFTED' | 'UNASSIGNED';
 type StageFilter = 'DOC' | 'PREP' | 'ALL';
 
+// ============================================================
+// ✅ Helper: Robustly resolve an employee's department string
+// Checks BOTH `department` (enum) and `departmentName` (string)
+// and normalizes any variant ("DOCUMENTATION DEPARTMENT", "Documentation", etc.)
+// ============================================================
+const resolveDepartment = (u: any): string => {
+  const raw =
+    (u?.department && String(u.department)) ||
+    (u?.departmentName && String(u.departmentName)) ||
+    '';
+  return raw.trim().toUpperCase();
+};
+
 const AdminClients: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -178,10 +191,17 @@ const AdminClients: React.FC = () => {
     return cleaned || name;
   };
 
+  // ============================================================
+  // ✅ FIX: Filter DOC employees using a robust department resolver
+  // that works whether the API populates `department` OR `departmentName`
+  // and handles variants like "DOCUMENTATION" / "DOCUMENTATION DEPARTMENT"
+  // ============================================================
   const docEmployees = useMemo(() => {
-    return users.filter(
-      (u) => u.active && u.departmentName?.toUpperCase() === 'DOCUMENTATION DEPARTMENT'
-    );
+    return users.filter((u) => {
+      if (!u.active) return false;
+      const dept = resolveDepartment(u);
+      return dept === 'DOCUMENTATION' || dept.startsWith('DOCUMENTATION');
+    });
   }, [users]);
 
   const groupedDocEmployees = useMemo(() => {

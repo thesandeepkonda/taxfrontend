@@ -10,9 +10,8 @@ import {
   assignTeamLead,
 } from '../../../store/slices/teamsSlice';
 import { fetchRoles } from '../../../store/slices/rolesSlice';
-import { quickAssign, fetchUsers, User } from '../../../store/slices/usersSlice';
+import { quickAssign, fetchUsers } from '../../../store/slices/usersSlice';
 import { useToast } from '../../../contexts/ToastContext';
-// ✅ Import CreateEmployeeModal
 import CreateEmployeeModal from '../resueables/CreateEmployeeModal';
 import {
   ArrowLeft,
@@ -37,7 +36,6 @@ import {
   X,
 } from 'lucide-react';
 
-// Helper to get default date (30 days ago)
 const getDefaultFromDate = () => {
   const d = new Date();
   d.setDate(d.getDate() - 30);
@@ -57,30 +55,24 @@ const AdminViewTeamMembers: React.FC = () => {
   const { list: roles, loading: rolesLoading } = useSelector((state: RootState) => state.roles);
   const { list: allUsers, loading: usersLoading } = useSelector((state: RootState) => state.users);
 
-  // Local state for per-user date ranges (Report)
   const [reportDates, setReportDates] = useState<Record<number, { from: string; to: string }>>({});
-
-  // Role change state per user
-  const [roleSelections, setRoleSelections] = useState<Record<number, number | ''>>({});
+  
+  // ✅ Changed role state map to store Enum String (e.g. "TEAM_LEAD", "EMPLOYEE")
+  const [roleSelections, setRoleSelections] = useState<Record<number, string>>({});
   const [roleUpdateLoading, setRoleUpdateLoading] = useState<Record<number, boolean>>({});
 
-  // ✅ Create Employee Modal State
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-
-  // ✅ NEW: Assign Existing Employee Modal State
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
   const [assignSearchQuery, setAssignSearchQuery] = useState('');
   const [selectedUserId, setSelectedUserId] = useState<number | ''>('');
   const [isAssigning, setIsAssigning] = useState(false);
 
-  // Fetch roles on mount if not already loaded
   useEffect(() => {
     if (roles.length === 0 && !rolesLoading) {
       dispatch(fetchRoles());
     }
   }, [dispatch, roles.length, rolesLoading]);
 
-  // Fetch team details and members
   useEffect(() => {
     if (teamId) {
       dispatch(fetchTeamById(teamId))
@@ -101,7 +93,7 @@ const AdminViewTeamMembers: React.FC = () => {
     };
   }, [dispatch, teamId, showToast]);
 
-  // Initialize default dates and role selections
+  // ✅ Auto-set user role using Enum String (roleName)
   useEffect(() => {
     if (teamUsers.length > 0) {
       const defaultDates = teamUsers.reduce((acc, user) => {
@@ -115,40 +107,31 @@ const AdminViewTeamMembers: React.FC = () => {
       }, {} as Record<number, { from: string; to: string }>);
       setReportDates(defaultDates);
 
-      const initialRoles: Record<number, number | ''> = {};
+      const initialRoles: Record<number, string> = {};
       teamUsers.forEach((user) => {
         if (user.id) {
-          initialRoles[user.id] = user.roleId || '';
+          initialRoles[user.id] = user.roleName || '';
         }
       });
       setRoleSelections(initialRoles);
     }
   }, [teamUsers]);
 
-  // ============================================================
-  // ✅ NEW: Load all users when Assign Modal opens
-  // ============================================================
   useEffect(() => {
     if (isAssignModalOpen && allUsers.length === 0) {
       dispatch(fetchUsers());
     }
   }, [isAssignModalOpen, allUsers.length, dispatch]);
 
-  // ============================================================
-  // ✅ NEW: Filter available employees (exclude current team members)
-  // ============================================================
   const availableEmployees = useMemo(() => {
     const currentTeamUserIds = new Set(teamUsers.map((u) => u.id));
     return allUsers.filter((u) => {
-      // Exclude already-in-team users
       if (currentTeamUserIds.has(u.id)) return false;
-      // Only active users
       if (!u.active) return false;
       return true;
     });
   }, [allUsers, teamUsers]);
 
-  // Filter by search query
   const filteredAvailableEmployees = useMemo(() => {
     const q = assignSearchQuery.toLowerCase().trim();
     if (!q) return availableEmployees;
@@ -161,29 +144,36 @@ const AdminViewTeamMembers: React.FC = () => {
     );
   }, [availableEmployees, assignSearchQuery]);
 
-  // ============================================================
-  // ✅ NEW: Assign Existing Employee Handler
-  // ============================================================
   const handleAssignExistingEmployee = async () => {
     if (!selectedUserId) {
       showToast('Please select an employee to assign', 'warning');
       return;
     }
 
-    if (!currentTeam?.departmentId) {
-      showToast('Team department info missing. Please refresh.', 'error');
+    const deptValue = (currentTeam as any)?.departmentId || currentTeam?.department;
+    if (!deptValue && !currentTeam?.id) {
+      showToast('Team department info missing. Please refresh team details.', 'error');
       return;
     }
 
     setIsAssigning(true);
     try {
+      const assignPayload: any = {
+        teamId: teamId,
+        override: true,
+      };
+
+      if ((currentTeam as any)?.departmentId) {
+        assignPayload.departmentId = (currentTeam as any).departmentId;
+      }
+      if (currentTeam?.department) {
+        assignPayload.department = currentTeam.department;
+      }
+
       await dispatch(
         quickAssign({
           userId: Number(selectedUserId),
-          data: {
-            teamId: teamId,
-            departmentId: currentTeam.departmentId,
-          },
+          data: assignPayload,
         })
       ).unwrap();
 
@@ -192,14 +182,12 @@ const AdminViewTeamMembers: React.FC = () => {
         ? `${assignedUser.firstName} ${assignedUser.lastName || ''}`.trim()
         : 'Employee';
 
-      showToast(`${name} assigned to ${currentTeam.name} successfully!`, 'success');
+      showToast(`${name} assigned to ${currentTeam?.name || 'Team'} successfully!`, 'success');
 
-      // Reset & close
       setIsAssignModalOpen(false);
       setSelectedUserId('');
       setAssignSearchQuery('');
 
-      // Refresh team users
       dispatch(fetchUsersByTeam(teamId)).unwrap().catch(() => {});
     } catch (err: any) {
       showToast(err || 'Failed to assign employee to team', 'error');
@@ -214,9 +202,6 @@ const AdminViewTeamMembers: React.FC = () => {
     setAssignSearchQuery('');
   };
 
-  // ============================================================
-  // Report handlers
-  // ============================================================
   const handleViewReport = (userId: number) => {
     const dates = reportDates[userId];
     if (!dates?.from || !dates?.to) {
@@ -236,16 +221,14 @@ const AdminViewTeamMembers: React.FC = () => {
     }));
   };
 
-  // ============================================================
-  // Role change handler with override logic
-  // ============================================================
-  const handleRoleChange = (userId: number, roleId: number | '') => {
-    setRoleSelections((prev) => ({ ...prev, [userId]: roleId }));
+  const handleRoleChange = (userId: number, roleEnumStr: string) => {
+    setRoleSelections((prev) => ({ ...prev, [userId]: roleEnumStr }));
   };
 
+  // ✅ Role Update Payload Fix: Passing roleEnumString & override
   const handleRoleUpdate = async (userId: number) => {
-    const newRoleId = roleSelections[userId];
-    if (!newRoleId) {
+    const newRoleEnum = roleSelections[userId];
+    if (!newRoleEnum) {
       showToast('Please select a role', 'warning');
       return;
     }
@@ -255,14 +238,13 @@ const AdminViewTeamMembers: React.FC = () => {
       showToast('User not found', 'error');
       return;
     }
-    if (user.roleId === newRoleId) {
+
+    if (user.roleName === newRoleEnum) {
       showToast('Role is already set to this value', 'info');
       return;
     }
 
-    const teamLeadRole = roles.find((r) => r.name === 'TEAM_LEAD');
-    const isTeamLeadRole = teamLeadRole && newRoleId === teamLeadRole.id;
-
+    const isTeamLeadRole = newRoleEnum === 'TEAM_LEAD';
     setRoleUpdateLoading((prev) => ({ ...prev, [userId]: true }));
 
     const performUpdate = async (override = false) => {
@@ -275,10 +257,15 @@ const AdminViewTeamMembers: React.FC = () => {
           })
         ).unwrap();
       } else {
+        // Sending role Enum string instead of numeric roleId
         await dispatch(
           quickAssign({
             userId,
-            data: { roleId: Number(newRoleId), override },
+            data: { 
+              role: newRoleEnum, 
+              roleName: newRoleEnum, 
+              override 
+            },
           })
         ).unwrap();
       }
@@ -313,9 +300,6 @@ const AdminViewTeamMembers: React.FC = () => {
     }
   };
 
-  // ============================================================
-  // Badge helpers
-  // ============================================================
   const getStatusBadge = (active: boolean) => {
     return active ? (
       <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 uppercase tracking-wide">
@@ -353,10 +337,9 @@ const AdminViewTeamMembers: React.FC = () => {
 
   return (
     <div className="w-full min-h-0 flex-1 flex flex-col font-sans overflow-hidden bg-gray-50/60 p-0">
-      {/* 🚀 Re-designed Modern Header Bar */}
+      {/* Header Bar */}
       <div className="bg-white border-b border-gray-200/90 px-4 py-3.5 shrink-0 mb-4 shadow-2xs">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          {/* Left Section: Back Button + Team Info */}
           <div className="flex items-center gap-3.5">
             <button
               onClick={() => navigate(-1)}
@@ -384,12 +367,12 @@ const AdminViewTeamMembers: React.FC = () => {
                   <span className="text-[#0F172A] font-bold">
                     {currentTeam ? currentTeam.name : `Team #${teamId}`}
                   </span>
-                  {currentTeam?.departmentName && (
+                  {(currentTeam?.departmentName || currentTeam?.department) && (
                     <>
                       <span className="text-gray-300">•</span>
                       <span className="inline-flex items-center gap-1 text-gray-500 font-medium">
                         <Building2 className="w-3 h-3 text-[#5f41b2]" />
-                        {currentTeam.departmentName}
+                        {currentTeam.departmentName || currentTeam.department}
                       </span>
                     </>
                   )}
@@ -398,7 +381,6 @@ const AdminViewTeamMembers: React.FC = () => {
             </div>
           </div>
 
-          {/* ✅ Right Section: Assign Existing + Create Employee Buttons */}
           <div className="flex items-center gap-2 flex-wrap">
             <button
               onClick={() => setIsAssignModalOpen(true)}
@@ -420,7 +402,7 @@ const AdminViewTeamMembers: React.FC = () => {
         </div>
       </div>
 
-      {/* Main Grid Content - Boxes Model Container */}
+      {/* Main Grid Content */}
       <div className="flex-1 min-h-0 overflow-y-auto px-4">
         {loading && teamUsers.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-slate-400 gap-3 py-16">
@@ -434,14 +416,14 @@ const AdminViewTeamMembers: React.FC = () => {
             <div className="flex items-center gap-3 mt-2">
               <button
                 onClick={() => setIsCreateModalOpen(true)}
-                className="text-xs font-bold text-[#5f41b2] hover:underline flex items-center gap-1"
+                className="text-xs font-bold text-[#5f41b2] hover:underline flex items-center gap-1 cursor-pointer"
               >
                 <UserPlus className="w-3.5 h-3.5" /> Create new employee
               </button>
               <span className="text-gray-300">|</span>
               <button
                 onClick={() => setIsAssignModalOpen(true)}
-                className="text-xs font-bold text-emerald-600 hover:underline flex items-center gap-1"
+                className="text-xs font-bold text-emerald-600 hover:underline flex items-center gap-1 cursor-pointer"
               >
                 <UserPlus2 className="w-3.5 h-3.5" /> Assign existing
               </button>
@@ -451,7 +433,7 @@ const AdminViewTeamMembers: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-5 pb-4">
             {teamUsers.map((user) => {
               const isUpdating = roleUpdateLoading[user.id] || false;
-              const selectedRole = roleSelections[user.id] || '';
+              const selectedRole = roleSelections[user.id] ?? (user.roleName || '');
 
               const fullName = `${user.firstName} ${user.lastName || ''}`.trim();
               const viewClientsUrl = `/admin/crm/view-employee-clients/${user.id}?name=${encodeURIComponent(
@@ -469,7 +451,6 @@ const AdminViewTeamMembers: React.FC = () => {
                   key={user.employeeCode}
                   className="bg-white rounded-[5px] border border-gray-200/80 shadow-2xs hover:shadow-xs transition-all flex flex-col justify-between overflow-hidden"
                 >
-                  {/* Card Header */}
                   <div className="p-4 border-b border-gray-100 flex items-start justify-between gap-3 bg-white">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-[5px] bg-[#5f41b2]/10 border border-[#5f41b2]/20 flex items-center justify-center text-[#5f41b2] font-extrabold text-sm shrink-0">
@@ -489,7 +470,6 @@ const AdminViewTeamMembers: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Card Body - Contacts & Work Specs */}
                   <div className="p-4 space-y-3 flex-1 text-xs">
                     <div className="flex items-center justify-between gap-2 pb-2 border-b border-gray-100">
                       <div>{getRoleBadge(user.roleName)}</div>
@@ -517,29 +497,28 @@ const AdminViewTeamMembers: React.FC = () => {
                         Change Role
                       </label>
                       <div className="flex items-center gap-2">
+                        {/* ✅ Enum String based select drop down */}
                         <select
                           value={selectedRole}
-                          onChange={(e) =>
-                            handleRoleChange(
-                              user.id,
-                              e.target.value ? Number(e.target.value) : ''
-                            )
-                          }
+                          onChange={(e) => handleRoleChange(user.id, e.target.value)}
                           className="text-xs font-semibold bg-white border border-gray-300 rounded-[5px] px-2.5 py-1.5 focus:ring-1 focus:ring-[#5f41b2] outline-none text-slate-700 flex-1 h-8 shadow-2xs cursor-pointer"
-                          disabled={isUpdating || rolesLoading}
+                          disabled={isUpdating}
                         >
                           <option value="">Select Role</option>
-                          {roles.map((role) => (
-                            <option key={role.id} value={role.id}>
-                              {role.name}
-                            </option>
-                          ))}
+                          <option value="ADMIN">ADMIN</option>
+                          <option value="TEAM_LEAD">TEAM_LEAD</option>
+                          <option value="EMPLOYEE">EMPLOYEE</option>
                         </select>
+
                         <button
                           onClick={() => handleRoleUpdate(user.id)}
-                          disabled={isUpdating || !selectedRole || selectedRole === user.roleId}
+                          disabled={
+                            isUpdating ||
+                            !selectedRole ||
+                            selectedRole === user.roleName
+                          }
                           className={`px-3 py-1.5 rounded-[5px] text-xs font-bold transition flex items-center justify-center gap-1.5 h-8 shrink-0 ${
-                            !selectedRole || selectedRole === user.roleId
+                            !selectedRole || selectedRole === user.roleName
                               ? 'bg-slate-100 border border-slate-200 text-slate-400 cursor-not-allowed'
                               : 'bg-[#5f41b2] hover:bg-[#4d3396] text-white shadow-2xs cursor-pointer active:scale-95'
                           }`}
@@ -588,7 +567,6 @@ const AdminViewTeamMembers: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Card Footer Actions */}
                   <div className="p-3 bg-gray-50/70 border-t border-gray-100 flex items-center justify-between gap-2">
                     <button
                       onClick={() => handleViewReport(user.id)}
@@ -615,18 +593,16 @@ const AdminViewTeamMembers: React.FC = () => {
         )}
       </div>
 
-      {/* Footer Info */}
       <div className="mx-4 mb-3 p-3 border border-gray-200 bg-white rounded-[5px] shrink-0 text-xs text-slate-500 flex justify-between items-center shadow-2xs">
         <span>
           Total <span className="font-bold text-slate-700">{teamUsers.length}</span> members
         </span>
         <span>
           Team ID: #{teamId}
-          {currentTeam && ` • ${currentTeam.departmentName || ''}`}
+          {currentTeam && ` • ${currentTeam.departmentName || currentTeam.department || ''}`}
         </span>
       </div>
 
-      {/* ✅ Reusable Create Employee Modal Integration */}
       <CreateEmployeeModal
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
@@ -638,17 +614,13 @@ const AdminViewTeamMembers: React.FC = () => {
             });
           showToast('Employee created successfully! Team list refreshed.', 'success');
         }}
-        preSelectedDepartmentId={currentTeam?.departmentId || null}
+        preSelectedDepartmentId={(currentTeam as any)?.departmentId || null}
         preSelectedTeamId={teamId}
       />
 
-      {/* ============================================================ */}
-      {/* ✅ NEW: Assign Existing Employee Modal                        */}
-      {/* ============================================================ */}
       {isAssignModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden border border-slate-100">
-            {/* Modal Header */}
             <div className="bg-white px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center">
@@ -673,9 +645,7 @@ const AdminViewTeamMembers: React.FC = () => {
               </button>
             </div>
 
-            {/* Modal Body */}
             <div className="flex-1 overflow-y-auto p-6 space-y-4 [scrollbar-width:thin]">
-              {/* Search */}
               <div className="relative">
                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
@@ -688,7 +658,6 @@ const AdminViewTeamMembers: React.FC = () => {
                 />
               </div>
 
-              {/* Employee List */}
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
                   Select Employee ({filteredAvailableEmployees.length} available)
@@ -777,7 +746,6 @@ const AdminViewTeamMembers: React.FC = () => {
                 )}
               </div>
 
-              {/* Selected Preview */}
               {selectedUserId && (
                 <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3.5">
                   <p className="text-[11px] font-bold text-emerald-700 uppercase tracking-wider mb-1">
@@ -800,7 +768,6 @@ const AdminViewTeamMembers: React.FC = () => {
               )}
             </div>
 
-            {/* Modal Footer */}
             <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 flex justify-end gap-2.5 shrink-0">
               <button
                 type="button"

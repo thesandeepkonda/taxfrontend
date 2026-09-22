@@ -33,8 +33,21 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         (incomingMessage) => {
           console.log('[ChatProvider] Dispatching incoming message to Redux store', incomingMessage);
           
+          // FIX: Bypass reshaping for Receipts and System Events
+          if (
+            incomingMessage.type === 'DIRECT_READ' || 
+            incomingMessage.type === 'GROUP_READ' || 
+            incomingMessage._isReceipt ||
+            incomingMessage.isOnline !== undefined ||
+            incomingMessage.unreadCount !== undefined
+          ) {
+            dispatch(receiveMessage(incomingMessage));
+            return;
+          }
+
+          // Normal Chat Message Processing
           dispatch(receiveMessage({
-            ...incomingMessage, // Preserve all backend fields (isOnline, unreadCount, etc.)
+            ...incomingMessage,
             id: incomingMessage.id || Date.now(),
             senderId: incomingMessage.senderId,
             senderName: incomingMessage.senderName,
@@ -45,7 +58,6 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             fileName: incomingMessage.fileName,       
             type: incomingMessage.type || 'TEXT',     
             timestamp: incomingMessage.timestamp || new Date().toISOString(),
-            // FIX: Ensure default is false for read receipts until explicitly marked true
             isRead: incomingMessage.isRead ?? false,
             isMine: String(incomingMessage.senderId) === String(user.id)
           }));

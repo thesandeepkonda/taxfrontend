@@ -3,7 +3,27 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth, User } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
-import { ShieldCheck, Eye, EyeOff } from 'lucide-react';
+import { useDispatch, useSelector } from 'react-redux';
+import { AppDispatch, RootState } from '../../store';
+import {
+  forgotPassword,
+  resetPassword,
+  clearAuthError,
+  resetForgotPasswordState,
+} from '../../store/slices/authSlice';
+import {
+  ShieldCheck,
+  Eye,
+  EyeOff,
+  X,
+  Mail,
+  KeyRound,
+  Lock,
+  Loader2,
+  AlertCircle,
+  CheckCircle2,
+  ArrowLeft,
+} from 'lucide-react';
 import logoImg from '../../assets/logo.png';
 import api from '../../services/api';
 
@@ -29,9 +49,29 @@ const Login: React.FC = () => {
   const [errors, setErrors] = useState<LoginErrors>({});
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+
   const { login, user } = useAuth();
   const { showToast } = useToast();
   const navigate = useNavigate();
+  const dispatch = useDispatch<AppDispatch>();
+
+  // ✅ Forgot Password Redux state
+  const {
+    loading: fpLoading,
+    error: fpError,
+    forgotPasswordSuccess,
+    resetPasswordSuccess,
+  } = useSelector((state: RootState) => state.auth);
+
+  // ✅ Forgot Password Modal State
+  const [showForgotModal, setShowForgotModal] = useState(false);
+  const [fpStep, setFpStep] = useState<1 | 2>(1); // 1 = email, 2 = otp + new pwd
+  const [fpEmail, setFpEmail] = useState('');
+  const [fpOtp, setFpOtp] = useState('');
+  const [fpNewPassword, setFpNewPassword] = useState('');
+  const [fpConfirmPassword, setFpConfirmPassword] = useState('');
+  const [fpShowPassword, setFpShowPassword] = useState(false);
+  const [fpLocalError, setFpLocalError] = useState<string | null>(null);
 
   useEffect(() => {
     if (user) {
@@ -90,7 +130,6 @@ const Login: React.FC = () => {
     e.preventDefault();
 
     if (!validateForm()) {
-      // Show validation summary via toast (optional)
       showToast('Please fix the errors before submitting.', 'warning');
       return;
     }
@@ -119,7 +158,6 @@ const Login: React.FC = () => {
       };
 
       login(userData, data.accessToken, data.refreshToken);
-      // Show success toast (optional)
       showToast('Login successful! Redirecting...', 'success');
       navigate('/dashboard', { replace: true });
     } catch (err: any) {
@@ -138,6 +176,92 @@ const Login: React.FC = () => {
       !errors.employeeCode &&
       !errors.password
     );
+  };
+
+  // ============================================================
+  // ✅ FORGOT PASSWORD HANDLERS
+  // ============================================================
+  const openForgotModal = () => {
+    dispatch(resetForgotPasswordState());
+    setShowForgotModal(true);
+    setFpStep(1);
+    setFpEmail('');
+    setFpOtp('');
+    setFpNewPassword('');
+    setFpConfirmPassword('');
+    setFpLocalError(null);
+  };
+
+  const closeForgotModal = () => {
+    setShowForgotModal(false);
+    setFpStep(1);
+    setFpEmail('');
+    setFpOtp('');
+    setFpNewPassword('');
+    setFpConfirmPassword('');
+    setFpLocalError(null);
+    dispatch(resetForgotPasswordState());
+  };
+
+  // Step 1: Send OTP
+  const handleSendOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFpLocalError(null);
+
+    if (!fpEmail.trim()) {
+      setFpLocalError('Email is required');
+      return;
+    }
+    if (!/^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(fpEmail.trim())) {
+      setFpLocalError('Enter a valid email address');
+      return;
+    }
+
+    try {
+      await dispatch(forgotPassword({ email: fpEmail.trim() })).unwrap();
+      showToast('OTP sent to your email!', 'success');
+      setFpStep(2);
+    } catch (err: any) {
+      setFpLocalError(err || 'Failed to send OTP');
+    }
+  };
+
+  // Step 2: Reset password with OTP
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFpLocalError(null);
+
+    if (!fpOtp.trim()) {
+      setFpLocalError('OTP is required');
+      return;
+    }
+    if (!fpNewPassword) {
+      setFpLocalError('New password is required');
+      return;
+    }
+    if (fpNewPassword.length < 8) {
+      setFpLocalError('Password must be at least 8 characters');
+      return;
+    }
+    if (fpNewPassword !== fpConfirmPassword) {
+      setFpLocalError('Passwords do not match');
+      return;
+    }
+
+    try {
+      await dispatch(
+        resetPassword({
+          email: fpEmail.trim(),
+          otp: fpOtp.trim(),
+          newPassword: fpNewPassword,
+        })
+      ).unwrap();
+
+      showToast('Password reset successfully! Please login.', 'success');
+      closeForgotModal();
+    } catch (err: any) {
+      setFpLocalError(err || 'Failed to reset password');
+    }
   };
 
   return (
@@ -171,10 +295,10 @@ const Login: React.FC = () => {
                   METRIX<br/><span className="text-[10px] text-gray-500 font-bold tracking-widest">WORKSPACE</span>
                 </div>
                 <div className="w-full aspect-square bg-blue-50 rounded-lg mb-6 flex items-center justify-center overflow-hidden border border-blue-100 relative">
-                  <img 
-                    src="https://img.magnific.com/premium-photo/tax-return-business-person-using-laptop-tax-season-is-approac_36325-5564.jpg?semt=ais_hybrid&w=740&q=80" 
-                    alt="US Tax Dashboard" 
-                    className="w-full h-full object-cover opacity-90" 
+                  <img
+                    src="https://img.magnific.com/premium-photo/tax-return-business-person-using-laptop-tax-season-is-approac_36325-5564.jpg?semt=ais_hybrid&w=740&q=80"
+                    alt="US Tax Dashboard"
+                    className="w-full h-full object-cover opacity-90"
                   />
                   <div className="absolute inset-0 bg-blue-900/10"></div>
                 </div>
@@ -225,9 +349,14 @@ const Login: React.FC = () => {
                     <label className="block text-sm font-semibold text-gray-700">
                       Password
                     </label>
-                    <a href="#" className="text-xs text-blue-600 hover:text-blue-800 hover:underline font-medium">
+                    {/* ✅ Forgot Password Trigger */}
+                    <button
+                      type="button"
+                      onClick={openForgotModal}
+                      className="text-xs text-blue-600 hover:text-blue-800 hover:underline font-medium cursor-pointer"
+                    >
                       Forgot Password?
-                    </a>
+                    </button>
                   </div>
                   <div className="relative">
                     <input
@@ -275,6 +404,221 @@ const Login: React.FC = () => {
           </div>
         </div>
       </main>
+
+      {/* ============================================================ */}
+      {/* ✅ FORGOT PASSWORD MODAL                                      */}
+      {/* ============================================================ */}
+      {showForgotModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md border-t-4 border-blue-700 overflow-hidden">
+            {/* Modal Header */}
+            <div className="px-6 pt-6 pb-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-blue-50 border border-blue-100 flex items-center justify-center">
+                  {fpStep === 1 ? (
+                    <Mail className="w-5 h-5 text-blue-700" />
+                  ) : (
+                    <KeyRound className="w-5 h-5 text-blue-700" />
+                  )}
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-gray-800">
+                    {fpStep === 1 ? 'Forgot Password' : 'Reset Password'}
+                  </h3>
+                  <p className="text-xs text-gray-500">
+                    {fpStep === 1
+                      ? 'Enter your registered email to receive OTP'
+                      : 'Enter OTP and set a new password'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={closeForgotModal}
+                disabled={fpLoading}
+                className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition cursor-pointer disabled:opacity-50"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Step Indicator */}
+            <div className="px-6 pb-4 flex items-center gap-2">
+              <div className={`flex-1 h-1.5 rounded-full ${fpStep >= 1 ? 'bg-blue-700' : 'bg-gray-200'}`} />
+              <div className={`flex-1 h-1.5 rounded-full ${fpStep >= 2 ? 'bg-blue-700' : 'bg-gray-200'}`} />
+            </div>
+
+            {/* Error */}
+            {(fpLocalError || fpError) && (
+              <div className="mx-6 mb-4 p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-2 text-sm text-rose-700">
+                <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                <span>{fpLocalError || fpError}</span>
+              </div>
+            )}
+
+            {/* ✅ STEP 1: Email */}
+            {fpStep === 1 && (
+              <form onSubmit={handleSendOtp} className="px-6 pb-6 space-y-4">
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-1">
+                    Email Address
+                  </label>
+                  <div className="relative">
+                    <Mail className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <input
+                      type="email"
+                      value={fpEmail}
+                      onChange={(e) => setFpEmail(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-transparent"
+                      placeholder="your.email@company.com"
+                      disabled={fpLoading}
+                      autoFocus
+                    />
+                  </div>
+                  <p className="text-[11px] text-gray-500 mt-1.5">
+                    We'll send a 6-digit OTP to this email.
+                  </p>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={fpLoading || !fpEmail.trim()}
+                  className="w-full flex items-center justify-center gap-2 bg-blue-700 hover:bg-blue-800 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition shadow-sm active:scale-95"
+                >
+                  {fpLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Sending OTP...
+                    </>
+                  ) : (
+                    <>
+                      <Mail className="w-4 h-4" />
+                      Send OTP
+                    </>
+                  )}
+                </button>
+              </form>
+            )}
+
+            {/* ✅ STEP 2: OTP + New Password */}
+            {fpStep === 2 && (
+              <form onSubmit={handleResetPassword} className="px-6 pb-6 space-y-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFpStep(1);
+                    setFpLocalError(null);
+                    dispatch(clearAuthError());
+                  }}
+                  disabled={fpLoading}
+                  className="flex items-center gap-1 text-xs font-bold text-blue-700 hover:text-blue-900 transition disabled:opacity-50"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  Change Email
+                </button>
+
+                <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 flex items-start gap-2 text-xs text-blue-800">
+                  <Mail className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                  <span>OTP sent to <span className="font-bold">{fpEmail}</span></span>
+                </div>
+
+                {/* OTP */}
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-1">
+                    OTP <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <KeyRound className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={fpOtp}
+                      onChange={(e) => setFpOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                      className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-transparent font-mono tracking-widest text-center text-lg"
+                      placeholder="123456"
+                      maxLength={6}
+                      disabled={fpLoading}
+                      autoFocus
+                    />
+                  </div>
+                </div>
+
+                {/* New Password */}
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-1">
+                    New Password <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <Lock className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <input
+                      type={fpShowPassword ? 'text' : 'password'}
+                      value={fpNewPassword}
+                      onChange={(e) => setFpNewPassword(e.target.value)}
+                      className="w-full pl-10 pr-10 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-transparent"
+                      placeholder="Min 8 characters"
+                      disabled={fpLoading}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setFpShowPassword(!fpShowPassword)}
+                      className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
+                    >
+                      {fpShowPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Confirm Password */}
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-1">
+                    Confirm Password <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <Lock className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <input
+                      type={fpShowPassword ? 'text' : 'password'}
+                      value={fpConfirmPassword}
+                      onChange={(e) => setFpConfirmPassword(e.target.value)}
+                      className={`w-full pl-10 pr-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-transparent ${
+                        fpConfirmPassword && fpConfirmPassword !== fpNewPassword
+                          ? 'border-rose-400'
+                          : 'border-gray-300'
+                      }`}
+                      placeholder="Re-enter password"
+                      disabled={fpLoading}
+                    />
+                  </div>
+                  {fpConfirmPassword && fpConfirmPassword !== fpNewPassword && (
+                    <p className="text-[11px] text-rose-500 mt-1">Passwords do not match</p>
+                  )}
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={
+                    fpLoading ||
+                    !fpOtp.trim() ||
+                    !fpNewPassword ||
+                    fpNewPassword !== fpConfirmPassword
+                  }
+                  className="w-full flex items-center justify-center gap-2 bg-blue-700 hover:bg-blue-800 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition shadow-sm active:scale-95"
+                >
+                  {fpLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Resetting...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-4 h-4" />
+                      Reset Password
+                    </>
+                  )}
+                </button>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

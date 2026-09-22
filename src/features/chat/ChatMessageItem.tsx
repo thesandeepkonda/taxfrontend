@@ -15,12 +15,11 @@ import {
   ExternalLink,
   FileText,
   Loader2,
-  Paperclip,
   X
 } from 'lucide-react';
 import { useDispatch, useSelector } from 'react-redux';
 import { AppDispatch, RootState } from '../../store';
-import { ChatMessage, deleteMessage, reactToMessage, removeReaction, setForwardingMessage } from '../../store/slices/chatSlice';
+import { ChatMessage, deleteMessage, reactToMessage, removeReaction, setForwardingMessage, togglePinMessage, setReplyingMessage } from '../../store/slices/chatSlice';
 import EmojiPicker from 'emoji-picker-react';
 import api from '../../services/api';
 
@@ -40,10 +39,9 @@ const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ msg, isMine, isGroup,
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isEditable, setIsEditable] = useState(false); 
   
-  // File Preview States
   const [imgUrl, setImgUrl] = useState<string>('');
   const [isDownloading, setIsDownloading] = useState(false);
-  const [showImageModal, setShowImageModal] = useState(false); // New state for in-page image modal
+  const [showImageModal, setShowImageModal] = useState(false); 
 
   const menuRef = useRef<HTMLDivElement>(null);
   const reactionRef = useRef<HTMLDivElement>(null);
@@ -57,23 +55,27 @@ const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ msg, isMine, isGroup,
   };
   const isImageFile = checkIsImage(msg.fileName) || checkIsImage(msg.fileUrl);
 
-  const getApiFileName = () => {
-    if (msg.fileName && msg.fileName.trim() !== '') {
-      return msg.fileName;
+  const getCleanEndpoint = (url: string) => {
+    let cleanUrl = url;
+    try {
+      if (cleanUrl.startsWith('http')) {
+        cleanUrl = new URL(cleanUrl).pathname;
+      }
+    } catch (e) {}
+    if (cleanUrl.startsWith('/api')) {
+      cleanUrl = cleanUrl.substring(4);
     }
-    if (msg.fileUrl) {
-      return msg.fileUrl.substring(msg.fileUrl.lastIndexOf('/') + 1);
+    if (!cleanUrl.startsWith('/')) {
+      cleanUrl = '/' + cleanUrl;
     }
-    return '';
+    return cleanUrl; 
   };
 
-  // Load Image Preview securely via Axios to pass Bearer Token
   useEffect(() => {
     let isMounted = true;
     if (msg.fileUrl && isImageFile && !isDeleted) {
-      const uuidFileName = getApiFileName();
-      
-      api.get(`/chat/files/${uuidFileName}`, { responseType: 'blob' })
+      const cleanUrl = getCleanEndpoint(msg.fileUrl);
+      api.get(cleanUrl, { responseType: 'blob' })
         .then(res => {
           if (isMounted) {
             const objectUrl = window.URL.createObjectURL(new Blob([res.data], { type: res.headers['content-type'] }));
@@ -152,12 +154,15 @@ const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ msg, isMine, isGroup,
       if (onEdit) onEdit(); 
     } else if (action === 'Forward') {
       dispatch(setForwardingMessage(msg)); 
+    } else if (action === 'Pin') {
+      dispatch(togglePinMessage(msg.id));
+    } else if (action === 'Reply') {
+      dispatch(setReplyingMessage(msg));
     } else {
       console.log(`Action [${action}] triggered for message ID: ${msg.id}`);
     }
   };
 
-  // Secure File Download/Preview Logic for Documents
   const handleFileAction = async (e: React.MouseEvent, action: 'preview' | 'download') => {
     e.preventDefault();
     e.stopPropagation();
@@ -170,11 +175,8 @@ const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ msg, isMine, isGroup,
     
     try {
       setIsDownloading(true);
-      const uuidFileName = getApiFileName();
-      
-      const reqUrl = action === 'download' 
-        ? `/chat/files/${uuidFileName}?download=true` 
-        : `/chat/files/${uuidFileName}`;
+      const cleanUrl = getCleanEndpoint(msg.fileUrl);
+      const reqUrl = action === 'download' ? `${cleanUrl}${cleanUrl.includes('?') ? '&' : '?'}download=true` : cleanUrl;
       
       const response = await api.get(reqUrl, { responseType: 'blob' });
       const blobUrl = window.URL.createObjectURL(new Blob([response.data], { type: response.headers['content-type'] }));
@@ -182,7 +184,7 @@ const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ msg, isMine, isGroup,
       if (action === 'download') {
         const link = document.createElement('a');
         link.href = blobUrl;
-        link.setAttribute('download', msg.fileName || uuidFileName); 
+        link.setAttribute('download', msg.fileName || 'download');
         document.body.appendChild(link);
         link.click();
         link.remove();
@@ -210,7 +212,6 @@ const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ msg, isMine, isGroup,
     }
   };
 
-  // Handle Emoji Picker Reaction Add/Remove Toggle
   const handleReactionClick = async (emojiObject: any) => {
     setReactionPos(null);
     try {
@@ -225,7 +226,6 @@ const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ msg, isMine, isGroup,
     }
   };
 
-  // Handle clicking directly on the reaction badge
   const handleBadgeClick = async (emoji: string) => {
     try {
       const currentReaction = currentUser && msg.reactions ? msg.reactions[String(currentUser.id)] : null;
@@ -265,7 +265,7 @@ const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ msg, isMine, isGroup,
     : {};
 
   return (
-    <div className={`flex flex-col relative group ${isMine ? 'items-end' : 'items-start'}`}>
+    <div id={`msg-${msg.id}`} className={`flex flex-col relative group ${isMine ? 'items-end' : 'items-start'}`}>
       <div className="flex items-end gap-2 max-w-[75%] min-w-0 relative">
         
         {!isMine && (
@@ -289,7 +289,7 @@ const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ msg, isMine, isGroup,
             </div>
           )}
 
-          <div className={`px-4 py-2.5 text-sm shadow-sm break-words whitespace-pre-wrap relative z-10 ${
+          <div className={`px-4 py-2.5 text-sm shadow-sm break-words whitespace-pre-wrap relative z-10 flex flex-col gap-1 ${
             isDeleted 
               ? 'bg-transparent border border-gray-200 text-gray-500 rounded-2xl'
               : isMine 
@@ -303,25 +303,46 @@ const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ msg, isMine, isGroup,
               </div>
             ) : (
               <>
+                {msg.isPinned && (
+                  <div className={`flex items-center gap-1 text-[10px] italic opacity-80 ${isMine ? 'text-blue-100' : 'text-gray-400'}`}>
+                    <Pin className="w-3 h-3" /> Pinned
+                  </div>
+                )}
+                
                 {msg.isForwarded && (
-                  <div className={`flex items-center gap-1 text-[10px] italic opacity-80 mb-1 ${isMine ? 'text-blue-100' : 'text-gray-400'}`}>
+                  <div className={`flex items-center gap-1 text-[10px] italic opacity-80 ${isMine ? 'text-blue-100' : 'text-gray-400'}`}>
                     <Forward className="w-3 h-3" /> Forwarded
                   </div>
                 )}
 
+                {/* Reply Message Visual */}
+                {msg.replyToMessage && (
+                  <div 
+                    className={`mb-1 p-2 rounded text-[10px] border-l-4 flex flex-col overflow-hidden max-w-[200px] sm:max-w-[250px] ${
+                      isMine ? 'bg-white/20 border-white text-white' : 'bg-black/5 border-[#5f41b2] text-gray-700'
+                    }`}
+                  >
+                    <span className="font-bold truncate">{msg.replyToMessage.senderName}</span>
+                    <span className="truncate opacity-90">{msg.replyToMessage.content || 'Attachment'}</span>
+                  </div>
+                )}
+
                 {!isMine && isGroup && (
-                  <div className="text-[10px] font-bold text-[#5f41b2] mb-1 leading-none">{msg.senderName}</div>
+                  <div className="text-[10px] font-bold text-[#5f41b2] leading-none">{msg.senderName}</div>
                 )}
                 
                 {msg.content}
                 
                 {/* File Preview Rendering */}
                 {msg.fileUrl && (
-                  <div className={`mt-2 flex flex-col gap-2 ${isMine ? 'items-end' : 'items-start'}`}>
+                  <div className={`mt-1 flex flex-col gap-2 ${isMine ? 'items-end' : 'items-start'}`}>
                     {isImageFile ? (
                       <div 
                         className="relative rounded-lg overflow-hidden border border-gray-200/50 bg-black/5 p-1 cursor-pointer"
-                        onClick={() => setShowImageModal(true)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowImageModal(true);
+                        }}
                         title="Click to view image"
                       >
                         {imgUrl ? (
@@ -345,7 +366,6 @@ const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ msg, isMine, isGroup,
                       </div>
                     )}
                     
-                    {/* Action Buttons (Only for non-images) */}
                     {!isImageFile && (
                       <div className="flex items-center gap-2 mt-1">
                           <button onClick={(e) => handleFileAction(e, 'preview')} disabled={isDownloading} className={`flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1.5 rounded-md transition cursor-pointer ${isMine ? 'bg-white/20 text-white hover:bg-white/30 border border-white/30' : 'bg-white text-[#5f41b2] border border-[#5f41b2]/20 hover:bg-[#5f41b2]/5'} disabled:opacity-50`}>
@@ -411,7 +431,7 @@ const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ msg, isMine, isGroup,
             <Forward className="w-3.5 h-3.5 text-gray-400" /> Forward
           </button>
           <button onClick={(e) => { e.stopPropagation(); handleAction('Pin'); }} className="w-full px-4 py-2 text-left text-xs font-semibold text-gray-700 hover:bg-gray-50 flex items-center gap-2 cursor-pointer">
-            <Pin className="w-3.5 h-3.5 text-gray-400" /> Pin Message
+            <Pin className="w-3.5 h-3.5 text-gray-400" /> {msg.isPinned ? 'Unpin Message' : 'Pin Message'}
           </button>
           
           {isEditable && (
