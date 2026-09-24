@@ -9,6 +9,8 @@ export default defineConfig({
     tailwindcss(),
     basicSsl(),
   ],
+  
+  base: '/crm/',
 
   server: {
     host: '0.0.0.0',
