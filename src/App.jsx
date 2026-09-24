@@ -1,6 +1,7 @@
-// src/App.jsx
+
 import React from 'react';
 import { BrowserRouter } from 'react-router-dom';
+
 import AppRoutes from './routes/AppRoutes';
 import { AuthProvider } from './contexts/AuthContext';
 import { ToastProvider } from './contexts/ToastContext';
@@ -10,7 +11,7 @@ import { ChatProvider } from './contexts/ChatContext';
 
 function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename="/crm">
       <ToastProvider>
         <AuthProvider>
           <ChatProvider>
